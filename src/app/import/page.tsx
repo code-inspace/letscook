@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -9,15 +8,13 @@ import {
   UploadCloud,
   Sparkles,
   CheckCircle2,
-  Image as ImageIcon,
   Trash2,
   Clock,
-  Flame,
   ShieldCheck,
-  Utensils
+  AlertCircle
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { Recipe, Ingredient, RecipeStep } from "@/features/recipes/types";
+import { Recipe } from "@/features/recipes/types";
 import { parseRecipeAlbumWithAI } from "@/features/ai/visionParser";
 import { saveRecipeToDb } from "@/features/recipes/actions";
 
@@ -30,33 +27,37 @@ export default function AIImportPage() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progressStatus, setProgressStatus] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const [extractedRecipe, setExtractedRecipe] = useState<Recipe | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
+    if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
       setSelectedFiles(filesArray);
       const urls = filesArray.map((f) => URL.createObjectURL(f));
       setPreviews(urls);
       setExtractedRecipe(null);
+      setErrorMessage("");
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.files) {
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const filesArray = Array.from(e.dataTransfer.files);
       setSelectedFiles(filesArray);
       const urls = filesArray.map((f) => URL.createObjectURL(f));
       setPreviews(urls);
       setExtractedRecipe(null);
+      setErrorMessage("");
     }
   };
 
   const startAIExtraction = async () => {
     if (selectedFiles.length === 0) return;
     setIsProcessing(true);
-    setProgressStatus("Analyse de l'album photo par l'IA...");
+    setErrorMessage("");
+    setProgressStatus("Envoi des photos à l'IA...");
 
     try {
       const parsed = await parseRecipeAlbumWithAI(
@@ -65,8 +66,9 @@ export default function AIImportPage() {
         (status) => setProgressStatus(status)
       );
       setExtractedRecipe(parsed);
-    } catch (err) {
+    } catch (err: any) {
       console.error("AI Import error:", err);
+      setErrorMessage(err?.message || "Une erreur est survenue lors de l'analyse.");
     } finally {
       setIsProcessing(false);
     }
@@ -78,160 +80,6 @@ export default function AIImportPage() {
     setProgressStatus("Chiffrement AES-256-GCM & Synchronisation...");
     await saveRecipeToDb(extractedRecipe, user?.id);
     router.push(`/recipes/${extractedRecipe.id}`);
-  };
-
-  // Preset demo loader for the 2 HelloFresh sheets
-  const loadHelloFreshSample = (sampleType: "porc" | "dinde") => {
-    setIsProcessing(true);
-    setProgressStatus("Extraction de la fiche recette HelloFresh...");
-
-    setTimeout(() => {
-      if (sampleType === "porc") {
-        setExtractedRecipe({
-          id: `rec_${Date.now()}`,
-          userId: user?.id || "user-default-1",
-          title: "Porc haché, riz & navet glacé à la japonaise",
-          subtitle: "avec une sauce soja-sésame & du citron",
-          category: "Main Dishes",
-          imageUrl: "https://images.unsplash.com/photo-1552611052-33e04de081de?w=600&auto=format&fit=crop&q=80",
-          prepTimeMinutes: 40,
-          difficulty: "Medium",
-          rating: 4.9,
-          servingsBase: 6,
-          spiceLevel: "Épicé",
-          utensils: ["Sauteuse avec couvercle", "Râpe", "Casserole", "Éplucheur", "Passoire"],
-          nutrition: {
-            caloriesKcal: 830,
-            proteines: "26g",
-            glucides: "83g",
-            lipides: "45g",
-            fibres: "7g",
-            sel: "3.6g",
-          },
-          allergens: ["Soja", "Sésame"],
-          ingredients: [
-            { id: "ing-p1", name: "Navet", amount: 4, unit: "pièce(s)" },
-            { id: "ing-p2", name: "Carotte", amount: 3, unit: "pièce(s)" },
-            { id: "ing-p3", name: "Gousse d'ail", amount: 2, unit: "pièce(s)" },
-            { id: "ing-p4", name: "Oignon nouveau", amount: 100, unit: "g" },
-            { id: "ing-p5", name: "Gingembre frais", amount: 2, unit: "cm" },
-            { id: "ing-p6", name: "Riz", amount: 450, unit: "g" },
-            { id: "ing-p7", name: "Farce au porc", amount: 2, unit: "paquet(s)" },
-            { id: "ing-p8", name: "Citron", amount: 1.5, unit: "pièce(s)" },
-            { id: "ing-p9", name: "Sauce soja", amount: 1.5, unit: "sachet(s)" },
-            { id: "ing-p10", name: "Huile de sésame", amount: 1.5, unit: "sachet(s)" },
-          ],
-          steps: [
-            {
-              stepNumber: 1,
-              title: "Coupe, tranche, cisèle !",
-              description: "Épluchez le navet et coupez-le en quartiers de 1 cm. Épluchez la carotte et coupez-la en 8 bâtonnets. Ciselez l'ail ainsi que le blanc et le vert de l'oignon nouveau. Râpez le gingembre.",
-              durationMinutes: 10,
-            },
-            {
-              stepNumber: 2,
-              title: "La sauteuse en action",
-              description: "Faites fondre du beurre à feu moyen-vif. Ajoutez le navet et la carotte (5 min). Saupoudrez le sucre (3 min). Mouillez à hauteur, couvrez et cuisez 14-18 min.",
-              durationMinutes: 18,
-              chefTip: "Vérifiez la cuisson des légumes avec la pointe d'un couteau.",
-            },
-            {
-              stepNumber: 3,
-              title: "Le riz passe à la casserole",
-              description: "Portez de l'eau salée à ébullition. Cuisez le riz 12-14 min. Égouttez, beurrez et couvrez.",
-              durationMinutes: 14,
-            },
-            {
-              stepNumber: 4,
-              title: "Au tour de la viande",
-              description: "Faites dorer l'ail et le porc 4-5 min dans un wok à feu vif. Ajoutez le blanc d'oignon et poursuivez 2-3 min.",
-              durationMinutes: 8,
-            },
-            {
-              stepNumber: 5,
-              title: "Pause fraîcheur",
-              description: "Mélangez le citron, gingembre, sauce soja, huile de sésame et vinaigre. Ajoutez la moitié dans les légumes et le reste dans la viande.",
-              durationMinutes: 4,
-            },
-            {
-              stepNumber: 6,
-              title: "Dressage en vue",
-              description: "Dressez le riz dans les assiettes, disposez les légumes caramélisés et le porc par-dessus. Parsemez de vert d'oignon nouveau.",
-              durationMinutes: 2,
-            },
-          ],
-          isFavorite: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      } else {
-        setExtractedRecipe({
-          id: `rec_${Date.now()}`,
-          userId: user?.id || "user-default-1",
-          title: "Mijoté vivifiant de dinde au curry",
-          subtitle: "garni de lait de coco & patate douce",
-          category: "Soups & Stews",
-          imageUrl: "https://images.unsplash.com/photo-1455619452474-d2be8b1e70cd?w=600&auto=format&fit=crop&q=80",
-          prepTimeMinutes: 50,
-          difficulty: "Easy",
-          rating: 4.8,
-          servingsBase: 6,
-          spiceLevel: "Épicé",
-          utensils: ["Râpe", "Casserole", "Éplucheur"],
-          nutrition: {
-            caloriesKcal: 635,
-            proteines: "31g",
-            glucides: "53g",
-            lipides: "33g",
-            fibres: "10g",
-            sel: "8.6g",
-          },
-          allergens: ["Poisson"],
-          ingredients: [
-            { id: "ing-d1", name: "Oignon", amount: 3, unit: "pièce(s)" },
-            { id: "ing-d2", name: "Gousse d'ail", amount: 4, unit: "pièce(s)" },
-            { id: "ing-d3", name: "Gingembre frais", amount: 2, unit: "cm" },
-            { id: "ing-d4", name: "Oignon nouveau", amount: 100, unit: "g" },
-            { id: "ing-d5", name: "Patate douce", amount: 2, unit: "pièce(s)" },
-            { id: "ing-d6", name: "Carotte", amount: 3, unit: "pièce(s)" },
-            { id: "ing-d7", name: "Dés de filet de dinde", amount: 2, unit: "paquet(s)" },
-            { id: "ing-d8", name: "Curry jaune", amount: 1.5, unit: "sachet(s)" },
-            { id: "ing-d9", name: "Lait de coco", amount: 2, unit: "paquet(s)" },
-            { id: "ing-d10", name: "Sauce poisson", amount: 1.5, unit: "sachet(s)" },
-          ],
-          steps: [
-            {
-              stepNumber: 1,
-              title: "Légumes à la chaîne !",
-              description: "Préparez le bouillon avec de l'eau chaude. Ciselez l'oignon, l'ail et le blanc de l'oignon nouveau. Râpez le gingembre. Coupez la patate douce en dés et la carotte en demi-lunes.",
-              durationMinutes: 12,
-            },
-            {
-              stepNumber: 2,
-              title: "Chauffer les casseroles !",
-              description: "Faites revenir la dinde 2-3 min à feu vif dans une marmite avec de l'huile. Réservez. Faites revenir les légumes avec l'ail, le gingembre et le curry 3-5 min.",
-              durationMinutes: 8,
-            },
-            {
-              stepNumber: 3,
-              title: "Ça mijote !",
-              description: "Déglacez au vinaigre balsamique. Ajoutez la patate douce, le bouillon, le lait de coco et la sauce poisson. Portez à ébullition puis mijotez 20-22 min.",
-              durationMinutes: 22,
-            },
-            {
-              stepNumber: 4,
-              title: "Sur la route des saveurs",
-              description: "Remettez la dinde 2-3 min avant la fin. Rectifiez l'assaisonnement et servez dans des assiettes creuses avec le vert d'oignon nouveau.",
-              durationMinutes: 4,
-            },
-          ],
-          isFavorite: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      setIsProcessing(false);
-    }, 1200);
   };
 
   return (
@@ -250,36 +98,15 @@ export default function AIImportPage() {
           Import Photo IA
         </h1>
 
-        <div className="w-11 h-11 flex items-center justify-center text-emerald-600">
+        <div className="w-11 h-11 flex items-center justify-center text-emerald-600" title="Chiffrement activé">
           <ShieldCheck className="w-6 h-6" />
         </div>
       </header>
 
       <div className="px-6 pt-2">
-        <p className="text-xs text-[#8E929E]">
-          Prenez en photo votre fiche recette (recto du plat + verso des étapes). L'IA associe automatiquement les ingrédients, étapes et détourera le plat !
+        <p className="text-xs text-[#8E929E] leading-relaxed">
+          Prenez en photo votre fiche recette (recto du plat + verso des étapes). L'IA associe automatiquement les ingrédients, étapes et détourera le plat principal !
         </p>
-
-        {/* Quick Demo Pre-fill Pills */}
-        <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
-          <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">
-            Exemples :
-          </span>
-          <button
-            type="button"
-            onClick={() => loadHelloFreshSample("porc")}
-            className="px-3 py-1.5 bg-emerald-50 text-[#16A34A] rounded-xl text-xs font-semibold border border-emerald-200/60 whitespace-nowrap active:scale-95"
-          >
-            🍱 Porc & Navet Japonais
-          </button>
-          <button
-            type="button"
-            onClick={() => loadHelloFreshSample("dinde")}
-            className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-xl text-xs font-semibold border border-amber-200/60 whitespace-nowrap active:scale-95"
-          >
-            🍛 Mijoté Dinde & Curry
-          </button>
-        </div>
 
         {/* Drag and drop / Photo upload zone */}
         <div
@@ -323,17 +150,29 @@ export default function AIImportPage() {
           </button>
         </div>
 
+        {/* Error message */}
+        {errorMessage && (
+          <div className="mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-xs text-rose-700">
+            <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Erreur d'analyse</p>
+              <p className="mt-0.5 text-rose-600">{errorMessage}</p>
+            </div>
+          </div>
+        )}
+
         {/* Selected Photos Thumbnails Grid */}
         {previews.length > 0 && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-[#181A20]">Photos de la fiche</span>
+              <span className="text-xs font-bold text-[#181A20]">Photos sélectionnées ({previews.length})</span>
               <button
                 type="button"
                 onClick={() => {
                   setSelectedFiles([]);
                   setPreviews([]);
                   setExtractedRecipe(null);
+                  setErrorMessage("");
                 }}
                 className="text-xs font-semibold text-rose-500 hover:underline flex items-center gap-1"
               >
@@ -342,15 +181,15 @@ export default function AIImportPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5">
               {previews.map((url, i) => (
                 <div
                   key={i}
                   className="relative aspect-video rounded-2xl overflow-hidden border border-slate-200 shadow-2xs group"
                 >
-                  <img src={url} alt={`Aperçu ${i + 1}`} className="w-full h-full object-cover" />
+                  <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
                   <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md backdrop-blur-xs">
-                    Page {i + 1}
+                    Photo {i + 1}
                   </span>
                 </div>
               ))}

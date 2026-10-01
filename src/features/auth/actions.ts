@@ -4,15 +4,7 @@ import { createClient } from "@/utils/supabase/client";
 const USER_SESSION_STORAGE_KEY = "letscook_user_session";
 
 export function getStoredUserSession(): UserSession | null {
-  if (typeof window === "undefined") {
-    return {
-      id: "user-default-1",
-      email: "juliana.silva@example.com",
-      name: "Juliana Silva",
-      tier: "Basic",
-      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-    };
-  }
+  if (typeof window === "undefined") return null;
 
   try {
     const raw = localStorage.getItem(USER_SESSION_STORAGE_KEY);
@@ -21,15 +13,7 @@ export function getStoredUserSession(): UserSession | null {
     }
   } catch {}
 
-  const defaultUser: UserSession = {
-    id: "user-default-1",
-    email: "juliana.silva@example.com",
-    name: "Juliana Silva",
-    tier: "Basic",
-    avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-  };
-  setStoredUserSession(defaultUser);
-  return defaultUser;
+  return null;
 }
 
 export function setStoredUserSession(user: UserSession | null): void {

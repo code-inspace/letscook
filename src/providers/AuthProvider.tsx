@@ -15,7 +15,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUserState] = useState<UserSession | null>(() => getStoredUserSession());
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
     try {
@@ -25,15 +25,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const u: UserSession = {
             id: session.user.id,
             email: session.user.email || "",
-            name: session.user.user_metadata?.full_name || "Juliana Silva",
-            avatarUrl: session.user.user_metadata?.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+            name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "Chef",
+            avatarUrl: session.user.user_metadata?.avatar_url,
             tier: "Basic",
           };
           setUserState(u);
           setStoredUserSession(u);
         }
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
       });
-    } catch {}
+    } catch {
+      setIsLoading(false);
+    }
   }, []);
 
   const setUser = (u: UserSession | null) => {

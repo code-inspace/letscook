@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Bell, Sparkles, Plus, Search, Filter } from "lucide-react";
+import { Bell, Sparkles, Plus, Search, User, ChefHat } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { Recipe } from "@/features/recipes/types";
 import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
@@ -52,25 +52,31 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col min-h-screen pb-28">
-      {/* Top Header: User Profile + Notifications */}
+      {/* Top Header: User Profile / App Identity */}
       <header className="px-6 pt-7 pb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="relative">
-            <img
-              src={user?.avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
-              alt={user?.name || "User Avatar"}
-              className="w-12 h-12 rounded-full object-cover ring-2 ring-white shadow-md"
-            />
+            {user?.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt={user.name || "User Avatar"}
+                className="w-11 h-11 rounded-full object-cover ring-2 ring-white shadow-md"
+              />
+            ) : (
+              <div className="w-11 h-11 rounded-full bg-emerald-100 text-[#16A34A] flex items-center justify-center font-extrabold text-sm shadow-sm ring-2 ring-white">
+                <ChefHat className="w-6 h-6" />
+              </div>
+            )}
             <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#22C55E] border-2 border-white rounded-full" />
           </div>
 
           <div className="flex flex-col">
             <span className="text-sm font-bold text-[#181A20] tracking-tight">
-              {user?.name || "Juliana Silva"}
+              {user?.name || "Let's Cook"}
             </span>
             <div className="mt-0.5">
-              <span className="inline-block px-2.5 py-0.5 bg-white text-[10px] font-semibold text-[#8E929E] rounded-full border border-slate-200/80 shadow-2xs">
-                {user?.tier || "Basic"}
+              <span className="inline-block px-2 py-0.5 bg-white text-[10px] font-semibold text-[#8E929E] rounded-full border border-slate-200/80 shadow-2xs">
+                {user ? user.tier || "Basic" : "Invité"}
               </span>
             </div>
           </div>
@@ -134,27 +140,27 @@ export default function HomePage() {
         />
       </section>
 
-      {/* Featured Recipe Showcase */}
+      {/* Recipe Showcase */}
       <section className="px-6 mt-3 flex flex-col items-center">
         {isLoading ? (
           <div className="w-full py-20 flex flex-col items-center justify-center text-slate-400 gap-3">
             <div className="w-10 h-10 border-3 border-[#22C55E] border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs font-medium">Chargement des recettes sécurisées...</span>
+            <span className="text-xs font-medium">Chargement des recettes...</span>
           </div>
         ) : filteredRecipes.length === 0 ? (
           <div className="w-full py-14 px-6 bg-white rounded-3xl border border-slate-100 text-center flex flex-col items-center mt-4 shadow-sm">
             <div className="w-16 h-16 rounded-full bg-emerald-50 text-[#22C55E] flex items-center justify-center mb-3">
               <Sparkles className="w-8 h-8" />
             </div>
-            <h3 className="font-bold text-[#181A20] text-base">Aucune recette trouvée</h3>
-            <p className="text-xs text-[#8E929E] mt-1 max-w-[240px]">
-              Prenez en photo vos fiches HelloFresh pour ajouter une délicieuse recette en quelques secondes !
+            <h3 className="font-bold text-[#181A20] text-base">Aucune recette pour le moment</h3>
+            <p className="text-xs text-[#8E929E] mt-1 max-w-[260px] leading-relaxed">
+              Prenez en photo votre fiche recette (recto/verso) pour la numériser et la cuisiner pas-à-pas !
             </p>
             <Link
               href="/import"
-              className="mt-4 px-5 py-2.5 bg-[#22C55E] text-white text-xs font-bold rounded-full shadow-md hover:bg-[#16A34A] transition-colors"
+              className="mt-5 px-6 py-3 bg-gradient-to-r from-[#22C55E] to-[#16A34A] text-white text-xs font-bold rounded-full shadow-[0_4px_14px_rgba(34,197,94,0.35)] hover:brightness-105 transition-all"
             >
-              Importer par photo IA
+              Importer une fiche recette par photo
             </Link>
           </div>
         ) : (
