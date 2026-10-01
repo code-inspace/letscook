@@ -1,29 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Outfit, Inter } from "next/font/google";
+import { Poppins } from "next/font/google";
 import "./globals.css";
+import { PhoneFrame } from "@/components/layout/PhoneFrame";
 import { AuthProvider } from "@/providers/AuthProvider";
 
-const outfit = Outfit({
+const poppins = Poppins({
   subsets: ["latin"],
-  variable: "--font-outfit",
-  display: "swap",
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+  weight: ["300", "400", "500"],
+  variable: "--font-poppins",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Let's Cook - Smart AI Cooking & Recipe Assistant",
-  description: "Cook Special Every Day with AI recipe extraction, smart steps and encrypted storage",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "Let's Cook",
-  },
+  title: "Let's Cook - Recipe App",
+  description: "Cook Special Every Day with pure minimalism & step-by-step recipes",
 };
 
 export const viewport: Viewport = {
@@ -32,7 +22,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#22C55E",
+  themeColor: "#5DB534",
 };
 
 export default function RootLayout({
@@ -41,12 +31,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className={`${outfit.variable} ${inter.variable}`}>
-      <body className="font-sans antialiased bg-[#ECEEF2] text-[#181A20] min-h-screen flex justify-center selection:bg-emerald-100 selection:text-emerald-900">
+    <html lang="fr" className={poppins.variable}>
+      <body className="antialiased bg-[#E8ECEB] text-[#1C1C1C]">
         <AuthProvider>
-          <div className="w-full max-w-[440px] min-h-screen bg-[#F8F9FB] flex flex-col shadow-2xl relative overflow-x-hidden border-x border-slate-200/60">
-            {children}
-          </div>
+          <PhoneFrame>{children}</PhoneFrame>
         </AuthProvider>
       </body>
     </html>

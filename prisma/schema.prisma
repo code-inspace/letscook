@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Plan {
+  BASIC
+  PREMIUM
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+model User {
+  id                     String     @id @default(cuid())
+  name                   String
+  avatarUrl              String
+  plan                   Plan       @default(BASIC)
+  hasUnreadNotifications Boolean    @default(false)
+  favorites              Favorite[]
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  imageUrl  String
+  order     Int      @default(0)
+  recipes   Recipe[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Recipe {
+  id              String             @id @default(cuid())
+  title           String
+  slug            String             @unique
+  imageUrl        String
+  durationMinutes Int
+  difficulty      Difficulty         @default(EASY)
+  rating          Float              @default(5.0)
+  isFeatured      Boolean            @default(false)
+  categoryId      String
+  category        Category           @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  ingredients     RecipeIngredient[]
+  steps           Step[]
+  favorites       Favorite[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model Ingredient {
+  id        String             @id @default(cuid())
+  name      String
+  imageUrl  String
+  recipes   RecipeIngredient[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+}
+
+model RecipeIngredient {
+  recipeId     String
+  ingredientId String
+  quantity     String
+  order        Int        @default(0)
+  recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@id([recipeId, ingredientId])
+}
+
+model Step {
+  id          String   @id @default(cuid())
+  recipeId    String
+  order       Int
+  title       String
+  instruction String
+  imageUrl    String
+  audioUrl    String?
+  markerX     Float?
+  markerY     Float?
+  recipe      Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([recipeId, order])
+}
+
+model Favorite {
+  userId    String
+  recipeId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, recipeId])
+}
