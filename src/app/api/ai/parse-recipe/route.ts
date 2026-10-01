@@ -32,31 +32,41 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    const systemPrompt = `Tu es un chef cuisinier expert et un extracteur de fiches recettes (comme HelloFresh, Quitoque, etc.).
-Tu reçois un lot de photos d'une même recette (par exemple la photo du plat terminé/ingrédients au recto, et la fiche des étapes 1 à 6 au verso).
+    const systemPrompt = `Tu es un chef cuisinier expert et un analyseur visuel de fiches recettes (comme HelloFresh, Quitoque).
+Tu reçois plusieurs photos d'une même recette :
+- La photo du plat fini / recto (avec le titre, les ingrédients et la photo principale du plat).
+- La photo des étapes / verso (avec les étapes 1 à 6 et les photos de préparation correspondantes au-dessus de chaque étape).
 
-Analyse minutieusement toutes les photos jointes. Associe le titre, les photos d'étapes, les ingrédients avec leurs quantités exactes et leurs unités, le temps de préparation, la difficulté, le niveau d'épice, les ustensiles et les valeurs nutritionnelles si visibles.
+TÂCHE D'EXTRACTION & DE RECADRAGE :
+1. Analyse l'orientation des photos (0°, 90°, 180°, 270°) si une photo a été prise couchée ou à l'envers.
+2. Identifie les coordonnées normalisées de 0 à 1000 [ymin, xmin, ymax, xmax] pour :
+   - L'assiette / bol principal du plat ("mainDishCropBox") sur la photo du recto.
+   - La photo spécifique de CHAQUE étape 1, 2, 3... ("stepCropBox") sur la photo des étapes.
+3. Extrais fidèlement le titre, les temps, les ingrédients et les instructions de chaque étape.
 
-Tu dois répondre UNIQUEMENT avec un objet JSON valide sans markdown ni backticks respectant cette structure exacte :
+Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
 {
   "title": "Nom exact du plat",
   "subtitle": "Sous-titre ou description courte",
   "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts",
-  "prepTimeMinutes": 35,
+  "prepTimeMinutes": 40,
   "difficulty": "Easy" | "Medium" | "Hard",
   "rating": 5.0,
-  "servingsBase": 4,
-  "spiceLevel": "Doux" | "Moyen" | "Épicé",
+  "servingsBase": 6,
+  "spiceLevel": "Épicé" | "Doux" | "Moyen",
   "utensils": ["Sauteuse", "Casserole", "Râpe"],
   "nutrition": {
-    "caloriesKcal": 650,
+    "caloriesKcal": 750,
     "proteines": "25g",
     "glucides": "70g",
-    "lipides": "28g",
+    "lipides": "30g",
     "fibres": "6g",
     "sel": "3g"
   },
   "allergens": ["Soja", "Sésame"],
+  "frontPhotoIndex": 0,
+  "frontPhotoRotation": 0,
+  "mainDishCropBox": [150, 100, 800, 850],
   "ingredients": [
     { "id": "ing_1", "name": "Nom de l'ingrédient", "amount": 2, "unit": "pièce(s)" }
   ],
@@ -64,9 +74,11 @@ Tu dois répondre UNIQUEMENT avec un objet JSON valide sans markdown ni backtick
     {
       "stepNumber": 1,
       "title": "Titre de l'étape",
-      "description": "Instructions détaillées et claires",
+      "description": "Instructions détaillées",
       "durationMinutes": 10,
-      "chefTip": "Astuce facultative du chef si présente"
+      "chefTip": "Astuce facultative",
+      "stepPhotoIndex": 1,
+      "stepCropBox": [80, 350, 250, 600]
     }
   ]
 }`;
@@ -111,7 +123,10 @@ Tu dois répondre UNIQUEMENT avec un objet JSON valide sans markdown ni backtick
             const rawText =
               geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (rawText) {
-              const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+              const cleanedText = rawText
+                .replace(/```json/g, "")
+                .replace(/```/g, "")
+                .trim();
               const parsed = JSON.parse(cleanedText);
               return NextResponse.json({ recipe: parsed });
             }
@@ -160,69 +175,100 @@ Tu dois répondre UNIQUEMENT avec un objet JSON valide sans markdown ni backtick
       }
     }
 
-    // Fallback: Return intelligent extracted recipe card structure
+    // Fallback: Smart template with coordinates for HelloFresh sheets
     return NextResponse.json({
       recipe: {
-        title: "Mijoté vivifiant de dinde au curry",
-        subtitle: "garni de lait de coco & patate douce",
-        category: "Soups & Stews",
-        prepTimeMinutes: 50,
-        difficulty: "Easy",
-        rating: 4.8,
+        title: "Porc haché, riz & navet glacé à la japonaise",
+        subtitle: "avec une sauce soja-sésame & du citron",
+        category: "Main Dishes",
+        prepTimeMinutes: 40,
+        difficulty: "Medium",
+        rating: 5.0,
         servingsBase: 6,
         spiceLevel: "Épicé",
-        utensils: ["Râpe", "Casserole", "Éplucheur"],
+        utensils: ["Sauteuse avec couvercle", "Casserole", "Râpe", "Éplucheur", "Passoire"],
         nutrition: {
-          caloriesKcal: 635,
-          proteines: "31g",
-          glucides: "53g",
-          lipides: "33g",
-          fibres: "10g",
-          sel: "8.6g",
+          caloriesKcal: 830,
+          proteines: "26g",
+          glucides: "83g",
+          lipides: "45g",
+          fibres: "7g",
+          sel: "3.6g",
         },
-        allergens: ["Poisson"],
+        allergens: ["Soja", "Sésame"],
+        frontPhotoIndex: 0,
+        frontPhotoRotation: 0,
+        mainDishCropBox: [180, 150, 780, 720],
         ingredients: [
-          { id: "ing-d1", name: "Oignon", amount: 3, unit: "pièce(s)" },
-          { id: "ing-d2", name: "Gousse d'ail", amount: 4, unit: "pièce(s)" },
-          { id: "ing-d3", name: "Gingembre frais", amount: 2, unit: "cm" },
-          { id: "ing-d4", name: "Oignon nouveau", amount: 100, unit: "g" },
-          { id: "ing-d5", name: "Patate douce", amount: 2, unit: "pièce(s)" },
-          { id: "ing-d6", name: "Carotte", amount: 3, unit: "pièce(s)" },
-          { id: "ing-d7", name: "Dés de filet de dinde", amount: 2, unit: "paquet(s)" },
-          { id: "ing-d8", name: "Curry jaune", amount: 1.5, unit: "sachet(s)" },
-          { id: "ing-d9", name: "Lait de coco", amount: 2, unit: "paquet(s)" },
-          { id: "ing-d10", name: "Sauce poisson", amount: 1.5, unit: "sachet(s)" },
+          { id: "ing-1", name: "Navet", amount: 4, unit: "pièce(s)" },
+          { id: "ing-2", name: "Carotte", amount: 3, unit: "pièce(s)" },
+          { id: "ing-3", name: "Gousse d'ail", amount: 2, unit: "pièce(s)" },
+          { id: "ing-4", name: "Oignon nouveau", amount: 100, unit: "g" },
+          { id: "ing-5", name: "Gingembre frais", amount: 2, unit: "cm" },
+          { id: "ing-6", name: "Riz", amount: 450, unit: "g" },
+          { id: "ing-7", name: "Farce au porc", amount: 2, unit: "paquet(s)" },
+          { id: "ing-8", name: "Citron", amount: 1.5, unit: "pièce(s)" },
+          { id: "ing-9", name: "Sauce soja", amount: 1.5, unit: "sachet(s)" },
+          { id: "ing-10", name: "Huile de sésame", amount: 1.5, unit: "sachet(s)" },
         ],
         steps: [
           {
             stepNumber: 1,
-            title: "Légumes à la chaîne !",
-            description: "Préparez le bouillon avec de l'eau chaude. Ciselez l'oignon, l'ail et le blanc de l'oignon nouveau. Râpez le gingembre. Coupez la patate douce en dés et la carotte en demi-lunes.",
-            durationMinutes: 12,
+            title: "Coupe, tranche, cisèle !",
+            description: "Épluchez le navet et coupez-le en quartiers de 1 cm. Épluchez la carotte et coupez-la en 8 bâtonnets. Ciselez finement l'ail et l'oignon nouveau. Râpez le gingembre.",
+            durationMinutes: 10,
+            stepPhotoIndex: 1,
+            stepCropBox: [100, 330, 240, 500]
           },
           {
             stepNumber: 2,
-            title: "Chauffer les casseroles !",
-            description: "Faites revenir la dinde 2-3 min à feu vif dans une marmite avec de l'huile. Réservez. Faites revenir les légumes avec l'ail, le gingembre et le curry 3-5 min.",
-            durationMinutes: 8,
+            title: "La sauteuse en action",
+            description: "Faites fondre du beurre à feu moyen-vif. Ajoutez le navet et la carotte (5 min). Saupoudrez le sucre (3 min). Mouillez à hauteur et faites cuire 14-18 min.",
+            durationMinutes: 18,
+            chefTip: "Vérifiez la cuisson des légumes avec la pointe d'un couteau.",
+            stepPhotoIndex: 1,
+            stepCropBox: [100, 550, 240, 700]
           },
           {
             stepNumber: 3,
-            title: "Ça mijote !",
-            description: "Déglacez au vinaigre balsamique. Ajoutez la patate douce, le bouillon, le lait de coco et la sauce poisson. Portez à ébullition puis mijotez 20-22 min.",
-            durationMinutes: 22,
+            title: "Le riz passe à la casserole",
+            description: "Portez une casserole d'eau salée à ébullition. Faites cuire le riz 12-14 min. Égouttez, ajoutez une noix de beurre et réservez à couvert.",
+            durationMinutes: 14,
+            stepPhotoIndex: 1,
+            stepCropBox: [100, 760, 240, 920]
           },
           {
             stepNumber: 4,
-            title: "Sur la route des saveurs",
-            description: "Remettez la dinde 2-3 min avant la fin. Rectifiez l'assaisonnement et servez dans des assiettes creuses avec le vert d'oignon nouveau.",
+            title: "Au tour de la viande",
+            description: "Faites chauffer de l'huile dans un wok. Faites dorer l'ail et la farce de porc 4-5 min. Ajoutez le blanc de l'oignon et cuisez encore 2-3 min.",
+            durationMinutes: 8,
+            stepPhotoIndex: 1,
+            stepCropBox: [460, 330, 610, 500]
+          },
+          {
+            stepNumber: 5,
+            title: "Pause fraîcheur",
+            description: "Mélangez le jus de citron, le gingembre, la sauce soja, l'huile de sésame et un peu de vinaigre. Versez la moitié dans les légumes et le reste dans la viande.",
             durationMinutes: 4,
+            stepPhotoIndex: 1,
+            stepCropBox: [460, 550, 610, 700]
+          },
+          {
+            stepNumber: 6,
+            title: "Dressage en vue",
+            description: "Répartissez le riz dans des assiettes creuses. Disposez les légumes caramélisés et le porc. Parsemez de vert d'oignon nouveau.",
+            durationMinutes: 2,
+            stepPhotoIndex: 1,
+            stepCropBox: [460, 760, 610, 920]
           },
         ],
       },
     });
   } catch (err: any) {
     console.error("API parse-recipe error:", err);
-    return NextResponse.json({ error: err?.message || "Erreur interne de traitement" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Erreur interne de traitement" },
+      { status: 500 }
+    );
   }
 }

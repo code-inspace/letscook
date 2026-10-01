@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Heart, Clock, ListOrdered, ChefHat, Star, Users, Flame, Utensils } from "lucide-react";
+import { ChevronLeft, Heart, Clock, ListOrdered, ChefHat, Star, Users, Flame, Utensils, Image as ImageIcon } from "lucide-react";
 import { Recipe } from "@/features/recipes/types";
 import { getStoredRecipes, saveRecipeToDb } from "@/features/recipes/actions";
 
@@ -56,7 +56,7 @@ export default function RecipeDetailPage() {
         <button
           type="button"
           onClick={() => router.back()}
-          className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all"
+          className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
           title="Retour"
         >
           <ChevronLeft className="w-6 h-6" />
@@ -65,7 +65,7 @@ export default function RecipeDetailPage() {
         <button
           type="button"
           onClick={toggleFavorite}
-          className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center shadow-sm border border-slate-100 active:scale-95 transition-all"
+          className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
           title="Ajouter aux favoris"
         >
           <Heart
@@ -153,7 +153,7 @@ export default function RecipeDetailPage() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => setActiveTab("ingredients")}
-            className={`text-sm font-bold transition-colors pb-1 relative ${
+            className={`text-sm font-bold transition-colors pb-1 relative cursor-pointer ${
               activeTab === "ingredients" ? "text-[#181A20]" : "text-[#8E929E] hover:text-[#181A20]"
             }`}
           >
@@ -165,7 +165,7 @@ export default function RecipeDetailPage() {
 
           <button
             onClick={() => setActiveTab("steps")}
-            className={`text-sm font-bold transition-colors pb-1 relative ${
+            className={`text-sm font-bold transition-colors pb-1 relative cursor-pointer ${
               activeTab === "steps" ? "text-[#181A20]" : "text-[#8E929E] hover:text-[#181A20]"
             }`}
           >
@@ -178,7 +178,7 @@ export default function RecipeDetailPage() {
           {recipe.nutrition && (
             <button
               onClick={() => setActiveTab("nutrition")}
-              className={`text-sm font-bold transition-colors pb-1 relative ${
+              className={`text-sm font-bold transition-colors pb-1 relative cursor-pointer ${
                 activeTab === "nutrition" ? "text-[#181A20]" : "text-[#8E929E] hover:text-[#181A20]"
               }`}
             >
@@ -195,14 +195,14 @@ export default function RecipeDetailPage() {
           <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-full border border-slate-200/80 shadow-2xs">
             <button
               onClick={() => setServings((s) => Math.max(1, s - 1))}
-              className="w-5 h-5 flex items-center justify-center text-xs font-bold text-slate-500 hover:text-slate-900 active:scale-90"
+              className="w-5 h-5 flex items-center justify-center text-xs font-bold text-slate-500 hover:text-slate-900 active:scale-90 cursor-pointer"
             >
               -
             </button>
             <span className="text-xs font-bold text-[#181A20]">{servings} pers</span>
             <button
               onClick={() => setServings((s) => s + 1)}
-              className="w-5 h-5 flex items-center justify-center text-xs font-bold text-slate-500 hover:text-slate-900 active:scale-90"
+              className="w-5 h-5 flex items-center justify-center text-xs font-bold text-slate-500 hover:text-slate-900 active:scale-90 cursor-pointer"
             >
               +
             </button>
@@ -272,26 +272,39 @@ export default function RecipeDetailPage() {
         </div>
       )}
 
-      {/* Tab Content 2: Steps Preview */}
+      {/* Tab Content 2: Steps Preview with Photos */}
       {activeTab === "steps" && (
-        <div className="px-6 mt-4 space-y-3">
+        <div className="px-6 mt-4 space-y-3.5">
           {recipe.steps?.map((step) => (
             <div
               key={step.stepNumber}
-              className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs"
+              className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs space-y-3"
             >
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-6 h-6 rounded-full bg-[#22C55E] text-white text-xs font-bold flex items-center justify-center">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-[#22C55E] text-white text-xs font-bold flex items-center justify-center shrink-0">
                   {step.stepNumber}
                 </span>
                 <h4 className="text-xs font-bold text-[#181A20]">{step.title}</h4>
               </div>
-              <p className="text-xs text-[#6B7280] leading-relaxed pl-8">
+
+              {/* Step Cropped Photo Preview */}
+              {step.imageUrl && (
+                <div className="w-full h-36 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-2xs">
+                  <img
+                    src={step.imageUrl}
+                    alt={step.title}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+
+              <p className="text-xs text-[#6B7280] leading-relaxed">
                 {step.description}
               </p>
+
               {step.chefTip && (
-                <div className="mt-2 ml-8 p-2.5 bg-amber-50 rounded-xl border border-amber-200/60 text-[11px] font-medium text-amber-900">
-                  💡 <strong>Astuce du chef :</strong> {step.chefTip}
+                <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200/60 text-[11px] font-medium text-amber-900">
+                  💡 <strong>Astuce :</strong> {step.chefTip}
                 </div>
               )}
             </div>
