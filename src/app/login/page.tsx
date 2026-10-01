@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChefHat, Mail, Lock, User, ArrowRight, AlertCircle, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
@@ -9,7 +9,7 @@ import { signInWithCredentials, signUpWithCredentials } from "@/features/auth/ac
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setUser } = useAuth();
+  const { user, setUser } = useAuth();
 
   const [isSignUp, setIsSignUp] = useState<boolean>(false);
   const [email, setEmail] = useState<string>("");
@@ -18,6 +18,16 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [successMessage, setSuccessMessage] = useState<string>("");
+
+  // If already logged in, immediately redirect to Home (replace history)
+  useEffect(() => {
+    if (user) {
+      const redirectedFrom = searchParams.get("redirectedFrom");
+      const destination =
+        redirectedFrom && redirectedFrom !== "/login" ? redirectedFrom : "/";
+      router.replace(destination);
+    }
+  }, [user, searchParams, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,16 +47,19 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
+      const redirectedFrom = searchParams.get("redirectedFrom");
+      const destination =
+        redirectedFrom && redirectedFrom !== "/login" ? redirectedFrom : "/";
+
       if (isSignUp) {
         const res = await signUpWithCredentials(email, password, fullName);
         if (res.success && res.session) {
           setUser(res.session);
           setSuccessMessage("Compte créé avec succès !");
-          const redirectTo = searchParams.get("redirectedFrom") || "/";
           setTimeout(() => {
-            router.push(redirectTo);
+            router.replace(destination);
             router.refresh();
-          }, 600);
+          }, 400);
         } else {
           setErrorMessage(res.error || "Une erreur est survenue lors de l'inscription.");
         }
@@ -54,8 +67,7 @@ function LoginForm() {
         const res = await signInWithCredentials(email, password);
         if (res.success && res.session) {
           setUser(res.session);
-          const redirectTo = searchParams.get("redirectedFrom") || "/";
-          router.push(redirectTo);
+          router.replace(destination);
           router.refresh();
         } else {
           setErrorMessage(res.error || "Email ou mot de passe incorrect.");
@@ -79,7 +91,7 @@ function LoginForm() {
             setErrorMessage("");
             setSuccessMessage("");
           }}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+          className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             !isSignUp
               ? "bg-white text-[#181A20] shadow-xs"
               : "text-[#8E929E] hover:text-[#181A20]"
@@ -94,7 +106,7 @@ function LoginForm() {
             setErrorMessage("");
             setSuccessMessage("");
           }}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+          className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             isSignUp
               ? "bg-white text-[#181A20] shadow-xs"
               : "text-[#8E929E] hover:text-[#181A20]"

@@ -108,8 +108,9 @@ export default function AIImportPage() {
       <header className="px-6 pt-7 pb-3 flex items-center justify-between">
         <button
           type="button"
-          onClick={() => router.back()}
-          className="w-11 h-11 rounded-full bg-white flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all"
+          onClick={() => router.push("/")}
+          className="w-11 h-11 rounded-full bg-white flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+          aria-label="Retour à l'accueil"
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
