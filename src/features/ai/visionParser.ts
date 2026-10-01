@@ -1,14 +1,13 @@
 import { Recipe, RecipeStep } from "@/features/recipes/types";
 
 /**
- * Loads an image from a File, Data URL, or Remote URL safely across all browsers (including iOS Safari / WebKit)
+ * Loads an image from a File, Data URL, or Remote URL safely across all mobile browsers (especially Safari WebKit)
  */
 async function loadImageElement(source: string | File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
 
-    // Only set crossOrigin for external http(s) URLs to prevent iOS Safari DOMException:
-    // "The string did not match the expected pattern."
+    // Only set crossOrigin for remote http(s) URLs
     if (
       typeof source === "string" &&
       (source.startsWith("http://") || source.startsWith("https://"))
@@ -16,28 +15,15 @@ async function loadImageElement(source: string | File): Promise<HTMLImageElement
       img.crossOrigin = "anonymous";
     }
 
-    let objectUrlToRevoke: string | null = null;
-
-    img.onload = () => {
-      if (objectUrlToRevoke) {
-        URL.revokeObjectURL(objectUrlToRevoke);
-      }
-      resolve(img);
-    };
-
-    img.onerror = () => {
-      if (objectUrlToRevoke) {
-        URL.revokeObjectURL(objectUrlToRevoke);
-      }
-      reject(new Error("Impossible de charger l'image"));
-    };
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Erreur de chargement d'image"));
 
     if (typeof source === "string") {
       img.src = source;
     } else {
       try {
-        objectUrlToRevoke = URL.createObjectURL(source);
-        img.src = objectUrlToRevoke;
+        const objectUrl = URL.createObjectURL(source);
+        img.src = objectUrl;
       } catch {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -63,9 +49,10 @@ export async function cropAndRotateRegion(
     const img = await loadImageElement(source);
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
-    if (!ctx) return typeof source === "string" ? source : URL.createObjectURL(source);
+    if (!ctx) {
+      return typeof source === "string" ? source : URL.createObjectURL(source);
+    }
 
-    // 1. Calculate source crop dimensions
     const box = cropBox && cropBox.length === 4 ? cropBox : [0, 0, 1000, 1000];
     const [ymin, xmin, ymax, xmax] = box;
 
@@ -77,11 +64,10 @@ export async function cropAndRotateRegion(
     const sWidth = Math.min(naturalWidth - sx, Math.max(10, ((xmax - xmin) / 1000) * naturalWidth));
     const sHeight = Math.min(naturalHeight - sy, Math.max(10, ((ymax - ymin) / 1000) * naturalHeight));
 
-    const targetSize = 600;
+    const targetSize = 500;
     canvas.width = targetSize;
     canvas.height = targetSize;
 
-    // Apply rotation if needed
     ctx.save();
     if (rotationDegrees !== 0) {
       ctx.translate(targetSize / 2, targetSize / 2);
@@ -90,7 +76,6 @@ export async function cropAndRotateRegion(
     }
 
     if (circular) {
-      // Circular clipping for main dish
       ctx.beginPath();
       const center = targetSize / 2;
       const radius = targetSize * 0.47;
@@ -103,7 +88,6 @@ export async function cropAndRotateRegion(
     ctx.restore();
 
     if (circular) {
-      // Subtle rim highlight for plate
       ctx.save();
       ctx.beginPath();
       const center = targetSize / 2;
@@ -115,9 +99,9 @@ export async function cropAndRotateRegion(
       ctx.restore();
     }
 
-    return canvas.toDataURL("image/png");
+    return canvas.toDataURL("image/jpeg", 0.85);
   } catch (err) {
-    console.warn("cropAndRotateRegion error:", err);
+    console.warn("cropAndRotateRegion fallback:", err);
     return typeof source === "string" ? source : URL.createObjectURL(source);
   }
 }
@@ -136,9 +120,7 @@ export function generateStudioDishImageUrl(recipeTitle: string, ingredients: str
 }
 
 /**
- * Intelligent Multi-Photo Recipe Album Parser:
- * Analyzes both Front dish photo and Back steps sheet from recipe kit cards,
- * extracts dish cutout and EACH step's photo!
+ * Intelligent Multi-Photo Recipe Album Parser
  */
 export async function parseRecipeAlbumWithAI(
   files: File[],
@@ -229,7 +211,7 @@ export async function parseRecipeAlbumWithAI(
     ...rawRecipe,
     id: `rec_${Date.now()}`,
     userId,
-    imageUrl: mainDishCutout,
+    imageUrl: mainDishCutout || URL.createObjectURL(frontFile),
     steps: enhancedSteps,
     isFavorite: false,
     createdAt: new Date().toISOString(),

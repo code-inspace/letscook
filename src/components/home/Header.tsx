@@ -1,6 +1,7 @@
 import React from "react";
 import Image from "next/image";
-import { Bell } from "lucide-react";
+import Link from "next/link";
+import { Bell, Sparkles } from "lucide-react";
 import { User } from "@/types";
 
 interface HeaderProps {
@@ -40,17 +41,28 @@ export function Header({ user }: HeaderProps) {
         </div>
       </div>
 
-      {/* Right Notification Button */}
-      <button
-        type="button"
-        className="relative w-10 h-10 rounded-xl bg-[#F1F2F2] flex items-center justify-center text-[#1C1C1C] shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:bg-[#EAEBEB] transition-colors cursor-pointer"
-        aria-label="Notifications"
-      >
-        <Bell className="w-[18px] h-[18px] text-[#1C1C1C]" strokeWidth={1.5} />
-        {user.hasUnreadNotifications && (
-          <span className="absolute top-[9px] right-[9px] w-1.5 h-1.5 bg-[#F2546E] rounded-full" />
-        )}
-      </button>
+      {/* Right Actions: AI Import Scanner & Notification Bell */}
+      <div className="flex items-center gap-2">
+        <Link
+          href="/import"
+          className="w-10 h-10 rounded-xl bg-[#F1F2F2] hover:bg-[#EAEBEB] flex items-center justify-center text-[#5DB534] shadow-[0_8px_24px_rgba(0,0,0,0.06)] transition-all active:scale-95"
+          aria-label="Scanner une fiche recette par IA"
+          title="Scanner une recette"
+        >
+          <Sparkles className="w-[18px] h-[18px]" strokeWidth={1.5} />
+        </Link>
+
+        <button
+          type="button"
+          className="relative w-10 h-10 rounded-xl bg-[#F1F2F2] flex items-center justify-center text-[#1C1C1C] shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:bg-[#EAEBEB] transition-colors cursor-pointer"
+          aria-label="Notifications"
+        >
+          <Bell className="w-[18px] h-[18px] text-[#1C1C1C]" strokeWidth={1.5} />
+          {user.hasUnreadNotifications && (
+            <span className="absolute top-[9px] right-[9px] w-1.5 h-1.5 bg-[#F2546E] rounded-full" />
+          )}
+        </button>
+      </div>
     </header>
   );
 }

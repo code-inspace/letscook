@@ -18,7 +18,7 @@
   --shadow-subtle: 0 8px 24px rgba(0, 0, 0, 0.06);
   --shadow-dish: 0 20px 40px rgba(0, 0, 0, 0.18);
   --shadow-cta: 0 10px 24px rgba(93, 181, 52, 0.35);
-  --shadow-phone: 0 25px 50px -12px rgba(0, 0, 0, 0.12);
+  --shadow-phone: 0 25px 50px -12px rgba(0, 0, 0, 0.06);
 }
 
 :root {
@@ -27,7 +27,7 @@
 }
 
 body {
-  background-color: #E8ECEB;
+  background-color: #FFFFFF;
   color: #1C1C1C;
   font-family: var(--font-poppins), 'Poppins', sans-serif;
   font-weight: 400;
