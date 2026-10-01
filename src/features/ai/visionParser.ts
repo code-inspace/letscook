@@ -1,25 +1,51 @@
 import { Recipe, RecipeStep } from "@/features/recipes/types";
 
 /**
- * Loads an image from a File or Data URL / Blob URL safely
+ * Loads an image from a File, Data URL, or Remote URL safely across all browsers (including iOS Safari / WebKit)
  */
 async function loadImageElement(source: string | File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
 
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Impossible de charger l'image"));
+    // Only set crossOrigin for external http(s) URLs to prevent iOS Safari DOMException:
+    // "The string did not match the expected pattern."
+    if (
+      typeof source === "string" &&
+      (source.startsWith("http://") || source.startsWith("https://"))
+    ) {
+      img.crossOrigin = "anonymous";
+    }
+
+    let objectUrlToRevoke: string | null = null;
+
+    img.onload = () => {
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+      }
+      resolve(img);
+    };
+
+    img.onerror = () => {
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+      }
+      reject(new Error("Impossible de charger l'image"));
+    };
 
     if (typeof source === "string") {
       img.src = source;
     } else {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        img.src = (e.target?.result as string) || "";
-      };
-      reader.onerror = () => reject(new Error("Erreur FileReader"));
-      reader.readAsDataURL(source);
+      try {
+        objectUrlToRevoke = URL.createObjectURL(source);
+        img.src = objectUrlToRevoke;
+      } catch {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          img.src = (e.target?.result as string) || "";
+        };
+        reader.onerror = () => reject(new Error("Erreur FileReader"));
+        reader.readAsDataURL(source);
+      }
     }
   });
 }
@@ -43,10 +69,13 @@ export async function cropAndRotateRegion(
     const box = cropBox && cropBox.length === 4 ? cropBox : [0, 0, 1000, 1000];
     const [ymin, xmin, ymax, xmax] = box;
 
-    const sx = Math.max(0, (xmin / 1000) * img.width);
-    const sy = Math.max(0, (ymin / 1000) * img.height);
-    const sWidth = Math.min(img.width - sx, ((xmax - xmin) / 1000) * img.width);
-    const sHeight = Math.min(img.height - sy, ((ymax - ymin) / 1000) * img.height);
+    const naturalWidth = img.naturalWidth || img.width || 800;
+    const naturalHeight = img.naturalHeight || img.height || 600;
+
+    const sx = Math.max(0, (xmin / 1000) * naturalWidth);
+    const sy = Math.max(0, (ymin / 1000) * naturalHeight);
+    const sWidth = Math.min(naturalWidth - sx, Math.max(10, ((xmax - xmin) / 1000) * naturalWidth));
+    const sHeight = Math.min(naturalHeight - sy, Math.max(10, ((ymax - ymin) / 1000) * naturalHeight));
 
     const targetSize = 600;
     canvas.width = targetSize;
@@ -69,11 +98,6 @@ export async function cropAndRotateRegion(
       ctx.closePath();
       ctx.clip();
     }
-
-    // Enhance contrast & saturation
-    try {
-      ctx.filter = "contrast(1.12) saturate(1.18) brightness(1.02)";
-    } catch {}
 
     ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, targetSize, targetSize);
     ctx.restore();
@@ -156,12 +180,18 @@ export async function parseRecipeAlbumWithAI(
   const frontRotation = rawRecipe.frontPhotoRotation || 0;
   const dishCropBox = rawRecipe.mainDishCropBox || [150, 100, 800, 850];
 
-  const mainDishCutout = await cropAndRotateRegion(
-    frontFile,
-    dishCropBox,
-    frontRotation,
-    true
-  );
+  let mainDishCutout = "";
+  try {
+    mainDishCutout = await cropAndRotateRegion(
+      frontFile,
+      dishCropBox,
+      frontRotation,
+      true
+    );
+  } catch (err) {
+    console.warn("Cutout fallback error:", err);
+    mainDishCutout = URL.createObjectURL(frontFile);
+  }
 
   // 2. Extract and crop EACH Step Photo from the steps sheet photo
   onProgress?.("Recadrage des photos pour chaque étape de cuisine...");
