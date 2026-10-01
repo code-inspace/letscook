@@ -47,16 +47,28 @@ function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
     : Buffer.from(binary, "binary").toString("base64");
 }
 
-function base64ToBuffer(base64: string): Uint8Array {
-  const binary =
-    typeof atob !== "undefined"
-      ? atob(base64)
-      : Buffer.from(base64, "base64").toString("binary");
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+function base64ToBuffer(base64Str: string): Uint8Array {
+  try {
+    // Sanitize base64 string for Safari WebKit
+    let cleaned = base64Str.replace(/-/g, "+").replace(/_/g, "/").replace(/\s/g, "");
+    while (cleaned.length % 4 !== 0) {
+      cleaned += "=";
+    }
+
+    if (typeof atob !== "undefined") {
+      const binary = atob(cleaned);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    } else {
+      return new Uint8Array(Buffer.from(cleaned, "base64"));
+    }
+  } catch (err) {
+    console.warn("base64ToBuffer fallback:", err);
+    return new Uint8Array();
   }
-  return bytes;
 }
 
 export function isEncrypted(value?: string | null): boolean {
@@ -129,6 +141,10 @@ export async function decryptText(
     const iv = base64ToBuffer(ivB64);
     const ciphertext = base64ToBuffer(cipherB64);
     const authTag = base64ToBuffer(tagB64);
+
+    if (iv.length === 0 || ciphertext.length === 0 || authTag.length === 0) {
+      return cipherText;
+    }
 
     const fullCipherBuffer = new Uint8Array(ciphertext.length + authTag.length);
     fullCipherBuffer.set(ciphertext, 0);
