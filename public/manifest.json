@@ -1,0 +1,21 @@
+{
+  "name": "Let's Cook - Smart AI Cooking",
+  "short_name": "Let's Cook",
+  "description": "Assistant culinaire IA intelligent avec extraction de fiches recettes et cuisson guidée pas-à-pas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8F9FB",
+  "theme_color": "#22C55E",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
