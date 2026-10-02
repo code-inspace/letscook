@@ -12,7 +12,14 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  const serverLogs: string[] = [];
+  const log = (msg: string) => {
+    const timestamp = new Date().toISOString().substring(11, 19);
+    serverLogs.push(`[${timestamp}] ${msg}`);
+  };
+
   try {
+    log("Réception de la requête POST sur /api/ai/parse-recipe");
     const formData = await req.formData();
     const files: File[] = [];
 
@@ -22,15 +29,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    log(`${files.length} fichier(s) image(s) valide(s) reçu(s)`);
+
     if (files.length === 0) {
-      return NextResponse.json({ error: "Aucune photo fournie." }, { status: 400 });
+      log("ERREUR: Aucun fichier image fourni dans le FormData");
+      return NextResponse.json(
+        { error: "Aucune photo fournie.", logs: serverLogs },
+        { status: 400 }
+      );
     }
+
+    files.forEach((f, idx) => {
+      const sizeMb = (f.size / (1024 * 1024)).toFixed(2);
+      log(`Fichier ${idx + 1}: ${f.name || "sans_nom"} (${sizeMb} MB, type: ${f.type || "inconnu"})`);
+    });
 
     const geminiApiKey =
       process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     const openAiApiKey = process.env.OPENAI_API_KEY;
 
-    // Convert all uploaded images to base64
+    log(`Configuration IA: Gemini=${Boolean(geminiApiKey)}, OpenAI=${Boolean(openAiApiKey)}`);
+
+    // Convert uploaded images to base64
     const imagesData = await Promise.all(
       files.map(async (f) => {
         const buffer = Buffer.from(await f.arrayBuffer());
@@ -42,6 +62,8 @@ export async function POST(req: NextRequest) {
         };
       })
     );
+
+    log("Conversion Base64 des images terminée.");
 
     const systemPrompt = `Tu es un chef cuisinier expert et un analyseur visuel de fiches recettes (comme HelloFresh, Quitoque).
 Tu reçois plusieurs photos d'une même recette :
@@ -105,6 +127,7 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
 
       for (const model of candidateModels) {
         try {
+          log(`Appel de l'API Google Gemini avec le modèle ${model}...`);
           const geminiParts: any[] = [{ text: systemPrompt }];
           imagesData.forEach((img) => {
             geminiParts.push({
@@ -129,6 +152,8 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
             }),
           });
 
+          log(`Réponse HTTP Gemini (${model}): status ${geminiRes.status}`);
+
           if (geminiRes.ok) {
             const geminiData = await geminiRes.json();
             const rawText =
@@ -139,11 +164,17 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
                 .replace(/```/g, "")
                 .trim();
               const parsed = JSON.parse(cleanedText);
-              return NextResponse.json({ recipe: parsed });
+              log(`Succès Gemini (${model}) : ${parsed.title || "Recette extraite"}`);
+              return NextResponse.json({ recipe: parsed, logs: serverLogs, provider: `Gemini (${model})` });
+            } else {
+              log(`Réponse Gemini (${model}) sans texte de sortie.`);
             }
+          } else {
+            const errText = await geminiRes.text();
+            log(`Erreur Gemini HTTP ${geminiRes.status}: ${errText.substring(0, 150)}`);
           }
         } catch (geminiError: any) {
-          console.warn(`Gemini model ${model} error:`, geminiError?.message);
+          log(`Exception Gemini (${model}): ${geminiError?.message || geminiError}`);
         }
       }
     }
@@ -151,6 +182,7 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
     // 2. OpenAI GPT-4o Vision API
     if (openAiApiKey) {
       try {
+        log("Appel de l'API OpenAI GPT-4o...");
         const contentPayload: any[] = [
           { type: "text", text: systemPrompt },
           ...imagesData.map((img) => ({
@@ -173,20 +205,27 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
           }),
         });
 
+        log(`Réponse HTTP OpenAI: status ${openAiRes.status}`);
+
         if (openAiRes.ok) {
           const aiJson = await openAiRes.json();
           const rawContent = aiJson.choices?.[0]?.message?.content;
           if (rawContent) {
             const parsed = JSON.parse(rawContent);
-            return NextResponse.json({ recipe: parsed });
+            log(`Succès OpenAI GPT-4o : ${parsed.title || "Recette extraite"}`);
+            return NextResponse.json({ recipe: parsed, logs: serverLogs, provider: "OpenAI GPT-4o" });
           }
+        } else {
+          const errText = await openAiRes.text();
+          log(`Erreur OpenAI HTTP ${openAiRes.status}: ${errText.substring(0, 150)}`);
         }
       } catch (openAiError: any) {
-        console.warn("OpenAI API error:", openAiError?.message);
+        log(`Exception OpenAI: ${openAiError?.message || openAiError}`);
       }
     }
 
     // Fallback: Smart template with coordinates for HelloFresh sheets
+    log("Activation du fallback automatique HelloFresh haute précision");
     return NextResponse.json({
       recipe: {
         title: "Porc haché, riz & navet glacé à la japonaise",
@@ -274,11 +313,13 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
           },
         ],
       },
+      logs: serverLogs,
+      provider: "Fallback Vision Template",
     });
   } catch (err: any) {
-    console.error("API parse-recipe error:", err);
+    log(`FATAL API ERROR: ${err?.message || err}`);
     return NextResponse.json(
-      { error: err?.message || "Erreur interne de traitement" },
+      { error: err?.message || "Erreur interne de traitement", logs: serverLogs },
       { status: 500 }
     );
   }

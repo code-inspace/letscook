@@ -1,13 +1,18 @@
 import { Recipe, RecipeStep } from "@/features/recipes/types";
 
+export interface AIParseResult {
+  recipe: Recipe;
+  logs: string[];
+  provider?: string;
+}
+
 /**
- * Loads an image from a File, Data URL, or Remote URL safely across all mobile browsers (especially Safari WebKit)
+ * Loads an image from a File, Data URL, or Remote URL safely across all mobile browsers
  */
 async function loadImageElement(source: string | File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
 
-    // Only set crossOrigin for remote http(s) URLs
     if (
       typeof source === "string" &&
       (source.startsWith("http://") || source.startsWith("https://"))
@@ -16,7 +21,7 @@ async function loadImageElement(source: string | File): Promise<HTMLImageElement
     }
 
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Erreur de chargement d'image"));
+    img.onerror = () => reject(new Error("Erreur de chargement d'image (HTMLImageElement)"));
 
     if (typeof source === "string") {
       img.src = source;
@@ -41,7 +46,7 @@ async function loadImageElement(source: string | File): Promise<HTMLImageElement
  */
 export async function cropAndRotateRegion(
   source: string | File,
-  cropBox?: number[], // [ymin, xmin, ymax, xmax] in 0-1000 scale
+  cropBox?: number[],
   rotationDegrees: number = 0,
   circular: boolean = false
 ): Promise<string> {
@@ -120,13 +125,24 @@ export function generateStudioDishImageUrl(recipeTitle: string, ingredients: str
 }
 
 /**
- * Intelligent Multi-Photo Recipe Album Parser
+ * Intelligent Multi-Photo Recipe Album Parser with detailed execution logging
  */
 export async function parseRecipeAlbumWithAI(
   files: File[],
   userId: string = "guest-user",
   onProgress?: (status: string) => void
-): Promise<Recipe> {
+): Promise<AIParseResult> {
+  const logs: string[] = [];
+  const logClient = (msg: string) => {
+    const timestamp = new Date().toISOString().substring(11, 19);
+    logs.push(`[Client ${timestamp}] ${msg}`);
+  };
+
+  logClient(`Démarrage de l'analyse avec ${files.length} photo(s)`);
+  files.forEach((f, i) => {
+    logClient(`Photo ${i + 1}: ${f.name} (${(f.size / (1024 * 1024)).toFixed(2)} MB, ${f.type})`);
+  });
+
   onProgress?.("Envoi des photos à l'IA multimodale...");
 
   const formData = new FormData();
@@ -138,22 +154,34 @@ export async function parseRecipeAlbumWithAI(
 
   let data: any;
   try {
+    logClient("Appel HTTP POST vers /api/ai/parse-recipe...");
     const response = await fetch("/api/ai/parse-recipe", {
       method: "POST",
       body: formData,
     });
 
+    logClient(`Réponse serveur reçue avec le status: ${response.status} ${response.statusText}`);
+
     data = await response.json();
 
+    if (Array.isArray(data?.logs)) {
+      data.logs.forEach((sLog: string) => logs.push(sLog));
+    }
+
     if (!response.ok || !data?.recipe) {
-      throw new Error(data?.error || "Erreur de traitement IA");
+      logClient(`ERREUR Serveur: ${data?.error || "Réponse invalide"}`);
+      const err = new Error(data?.error || "Erreur de traitement IA");
+      (err as any).logs = logs;
+      throw err;
     }
   } catch (err: any) {
-    console.warn("Server AI parsing error:", err);
-    throw new Error(err?.message || "Impossible d'extraire la recette.");
+    logClient(`ÉCHEC de la requête API: ${err?.message || err}`);
+    if (!err.logs) err.logs = logs;
+    throw err;
   }
 
   const rawRecipe = data.recipe;
+  logClient(`Recette extraite: "${rawRecipe.title}" (${rawRecipe.ingredients?.length || 0} ingrédients, ${rawRecipe.steps?.length || 0} étapes)`);
 
   // 1. Extract and cutout Main Dish Image
   onProgress?.("Détourage et redressement du plat principal...");
@@ -162,6 +190,7 @@ export async function parseRecipeAlbumWithAI(
   const frontRotation = rawRecipe.frontPhotoRotation || 0;
   const dishCropBox = rawRecipe.mainDishCropBox || [150, 100, 800, 850];
 
+  logClient(`Détourage plat principal (photo index ${frontIdx}, rotation ${frontRotation}°, cropBox: [${dishCropBox.join(",")}])`);
   let mainDishCutout = "";
   try {
     mainDishCutout = await cropAndRotateRegion(
@@ -170,8 +199,9 @@ export async function parseRecipeAlbumWithAI(
       frontRotation,
       true
     );
+    logClient("Détourage du plat principal réussi.");
   } catch (err) {
-    console.warn("Cutout fallback error:", err);
+    logClient(`Avertissement détourage: ${err}`);
     mainDishCutout = URL.createObjectURL(frontFile);
   }
 
@@ -207,7 +237,9 @@ export async function parseRecipeAlbumWithAI(
     })
   );
 
-  return {
+  logClient(`${enhancedSteps.length} étape(s) préparée(s) avec succès.`);
+
+  const finalRecipe: Recipe = {
     ...rawRecipe,
     id: `rec_${Date.now()}`,
     userId,
@@ -216,5 +248,11 @@ export async function parseRecipeAlbumWithAI(
     isFavorite: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+  };
+
+  return {
+    recipe: finalRecipe,
+    logs,
+    provider: data.provider || "Vision AI",
   };
 }
