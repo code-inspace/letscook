@@ -72,25 +72,52 @@ export default function AIImportPage() {
     setIsProcessing(true);
     setErrorMessage("");
     setProgressStatus("Envoi des photos à l'IA...");
-    setExecutionLogs([]);
+
+    const initialLogs: string[] = [
+      `[${new Date().toISOString().substring(11, 19)}] Déclenchement de l'analyse IA`,
+      `[Client] Navigateur: ${typeof navigator !== "undefined" ? navigator.userAgent : "inconnu"}`,
+      `[Client] ${selectedFiles.length} photo(s) sélectionnée(s)`,
+    ];
+
+    selectedFiles.forEach((f, idx) => {
+      initialLogs.push(
+        `[Client] Photo ${idx + 1}: ${f.name || "sans_nom"} (${(f.size / (1024 * 1024)).toFixed(2)} MB, type: ${f.type || "inconnu"})`
+      );
+    });
+
+    setExecutionLogs(initialLogs);
 
     try {
+      initialLogs.push(`[Client] Lancement de parseRecipeAlbumWithAI...`);
+      setExecutionLogs([...initialLogs]);
+
       const result = await parseRecipeAlbumWithAI(
         selectedFiles,
         user?.id,
         (status) => setProgressStatus(status)
       );
+
       setExtractedRecipe(result.recipe);
       setOriginalCutout(result.recipe.imageUrl);
-      setExecutionLogs(result.logs);
+      setExecutionLogs([...initialLogs, ...result.logs]);
       setAiProvider(result.provider || "Vision AI");
       setIsAiStudioGenerated(false);
     } catch (err: any) {
       console.error("AI Import error:", err);
-      setErrorMessage(err?.message || "Une erreur est survenue lors de l'analyse.");
-      if (err.logs && Array.isArray(err.logs)) {
-        setExecutionLogs(err.logs);
+      const errorMsg = err?.message || String(err) || "Une erreur est survenue lors de l'analyse.";
+      setErrorMessage(errorMsg);
+
+      const errLogs = [
+        ...initialLogs,
+        ...(err.logs && Array.isArray(err.logs) ? err.logs : []),
+        `[ERREUR FATALE] Type: ${err?.name || "Error"}, Message: ${errorMsg}`,
+      ];
+
+      if (err?.stack) {
+        errLogs.push(`[STACK] ${err.stack.substring(0, 200)}`);
       }
+
+      setExecutionLogs(errLogs);
       setShowLogs(true); // Automatically expand logs on error
     } finally {
       setIsProcessing(false);
