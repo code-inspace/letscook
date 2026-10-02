@@ -428,6 +428,12 @@ export default function AIImportPage() {
                   src={extractedRecipe.imageUrl}
                   alt={extractedRecipe.title}
                   className="w-full h-full object-cover rounded-full"
+                  onError={(e) => {
+                    const fallback = originalCutout || extractedRecipe.originalImageUrl;
+                    if (fallback && e.currentTarget.src !== fallback) {
+                      e.currentTarget.src = fallback;
+                    }
+                  }}
                 />
               </div>
 
@@ -453,13 +459,13 @@ export default function AIImportPage() {
             <button
               type="button"
               onClick={toggleStudioAiRegeneration}
-              className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
+              className="w-full py-2.5 px-3 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
             >
               <Wand2 className="w-3.5 h-3.5 text-purple-600" />
               <span>
                 {isAiStudioGenerated
-                  ? "Revenir à la photo réelle détourée"
-                  : "✨ Régénérer en Photo Studio IA (FLUX 4K)"}
+                  ? "📸 Revenir aux vraies photos découpées"
+                  : "✨ Régénérer en Studio IA HD (Visuels 4K)"}
               </span>
             </button>
 
@@ -485,6 +491,11 @@ export default function AIImportPage() {
                           src={step.imageUrl}
                           alt={`Étape ${step.stepNumber}`}
                           className="w-full h-full object-cover"
+                          onError={(e) => {
+                            if (step.originalCutoutUrl && e.currentTarget.src !== step.originalCutoutUrl) {
+                              e.currentTarget.src = step.originalCutoutUrl;
+                            }
+                          }}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-400">

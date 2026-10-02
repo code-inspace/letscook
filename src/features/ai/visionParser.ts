@@ -196,13 +196,12 @@ export async function cropAndRotateRegion(
  * Generates an ultra-realistic 4K studio culinary photo for a recipe using free FLUX.1 inference
  */
 export function generateStudioDishImageUrl(recipeTitle: string, ingredients: string[]): string {
-  const ingrSummary = ingredients.slice(0, 4).join(", ");
+  const ingrSummary = ingredients.slice(0, 3).join(", ");
+  const cleanTitle = recipeTitle.replace(/[^a-zA-Z0-9à-úÀ-Ú\s]/g, " ").trim();
   const promptText = encodeURIComponent(
-    `gourmet top-down studio culinary photograph of ${recipeTitle}, made with ${ingrSummary}, served in a beautiful round ceramic bowl, appetizing colorful presentation, commercial food magazine 8k`
+    `gourmet culinary photo of ${cleanTitle}, with ${ingrSummary}, served in a beautiful round ceramic bowl, appetizing colorful presentation, 8k food photography`
   );
-  return `https://image.pollinations.ai/prompt/${promptText}?width=600&height=600&nologo=true&seed=${Math.floor(
-    Math.random() * 10000
-  )}`;
+  return `https://image.pollinations.ai/prompt/${promptText}?width=600&height=600&nologo=true&model=flux`;
 }
 
 /**
@@ -214,13 +213,16 @@ export function generateStudioStepImageUrl(
   imagePrompt?: string,
   seedModifier: number = 0
 ): string {
-  const baseDescription = imagePrompt || `${stepTitle}, ${stepDescription.slice(0, 140)}`;
+  const cleanTitle = stepTitle.replace(/[^a-zA-Z0-9à-úÀ-Ú\s]/g, " ").trim();
+  const cleanPrompt = (imagePrompt || stepDescription || "")
+    .replace(/[^a-zA-Z0-9à-úÀ-Ú\s]/g, " ")
+    .slice(0, 100)
+    .trim();
+
   const promptText = encodeURIComponent(
-    `gourmet culinary cooking process photo: ${baseDescription}, authentic kitchen cooking action, appetizing food magazine quality, crisp detail 8k`
+    `professional food photography cooking step: ${cleanTitle}, ${cleanPrompt}, realistic kitchen cooking action, gourmet culinary magazine quality`
   );
-  return `https://image.pollinations.ai/prompt/${promptText}?width=600&height=600&nologo=true&seed=${Math.floor(
-    1000 + seedModifier * 777 + (stepTitle.length * 37) % 9999
-  )}`;
+  return `https://image.pollinations.ai/prompt/${promptText}?width=600&height=600&nologo=true&model=flux&seed=${1000 + seedModifier * 333}`;
 }
 
 /**
@@ -244,12 +246,12 @@ export async function parseRecipeAlbumWithAI(
 
   // 1. Auto-compress images client-side to ensure total payload is well under Vercel's 4.5MB limit
   onProgress?.("Optimisation & compression des photos pour l'IA...");
-  logClient("Compression intelligente des photos (max 1600px, JPEG 82%)...");
+  logClient("Compression intelligente des photos (max 1200px, JPEG 78%)...");
 
   const compressedFiles: File[] = await Promise.all(
     files.map(async (file, idx) => {
       const initialSize = file.size;
-      const compressed = await compressImageForUpload(file, 1600, 0.82);
+      const compressed = await compressImageForUpload(file, 1200, 0.78);
       const newSize = compressed.size;
       logClient(
         `Photo ${idx + 1} optimisée: ${(initialSize / (1024 * 1024)).toFixed(2)} MB ➔ ${(newSize / (1024 * 1024)).toFixed(2)} MB (${Math.round((newSize / initialSize) * 100)}%)`
@@ -261,7 +263,7 @@ export async function parseRecipeAlbumWithAI(
   const totalPayloadMb = (compressedFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2);
   logClient(`Poids total du payload réseau: ${totalPayloadMb} MB (limite Vercel: 4.5 MB)`);
 
-  onProgress?.("Analyse multimodale & OCR par IA (Gemini 3.8 Flash)...");
+  onProgress?.("Analyse multimodale & OCR par IA (Gemini)...");
 
   const formData = new FormData();
   compressedFiles.forEach((file, i) => {
@@ -339,7 +341,13 @@ export async function parseRecipeAlbumWithAI(
 
   // 2. Extract, rotate upright and cutout Main Dish Image
   onProgress?.("Redressement et détourage du plat principal...");
-  const frontIdx = Math.min(rawRecipe.frontPhotoIndex ?? 0, compressedFiles.length - 1);
+  const frontIdx =
+    typeof rawRecipe.frontPhotoIndex === "number" &&
+    rawRecipe.frontPhotoIndex >= 0 &&
+    rawRecipe.frontPhotoIndex < compressedFiles.length
+      ? rawRecipe.frontPhotoIndex
+      : 0;
+
   const frontFile = compressedFiles[frontIdx] || compressedFiles[0];
   const frontRotation = rawRecipe.frontPhotoRotation ?? photoOrientations[frontIdx] ?? 0;
   const dishCropBox = rawRecipe.mainDishCropBox || [150, 100, 800, 850];
@@ -363,15 +371,25 @@ export async function parseRecipeAlbumWithAI(
   const studioDishUrl = generateStudioDishImageUrl(rawRecipe.title, ingrNames);
 
   // 3. Extract, rotate upright, and crop EACH Step Photo from the steps sheet photo
-  // + Generate HD Studio AI recreation URL based on step visual imagePrompt & description
-  onProgress?.("Redressement et génération des photos d'étapes (Réel + Studio IA)...");
-  const versoIdx = compressedFiles.length > 1 ? 1 : 0;
+  onProgress?.("Redressement et extraction des photos d'étapes...");
+  const versoIdx =
+    compressedFiles.length > 1
+      ? frontIdx === 0
+        ? 1
+        : 0
+      : 0;
 
   const enhancedSteps: RecipeStep[] = await Promise.all(
     (rawRecipe.steps || []).map(async (step: any, index: number) => {
       let cutoutUrl: string | undefined = step.imageUrl;
-      const stepPhotoIdx = step.stepPhotoIndex ?? versoIdx;
-      const stepFile = compressedFiles[stepPhotoIdx] || compressedFiles[0];
+      const stepPhotoIdx =
+        typeof step.stepPhotoIndex === "number" &&
+        step.stepPhotoIndex >= 0 &&
+        step.stepPhotoIndex < compressedFiles.length
+          ? step.stepPhotoIndex
+          : versoIdx;
+
+      const stepFile = compressedFiles[stepPhotoIdx] || compressedFiles[versoIdx] || compressedFiles[0];
       const stepRotation = step.stepPhotoRotation ?? photoOrientations[stepPhotoIdx] ?? 0;
 
       if (stepFile && step.stepCropBox) {
@@ -410,7 +428,7 @@ export async function parseRecipeAlbumWithAI(
     })
   );
 
-  logClient(`${enhancedSteps.length} étape(s) préparée(s) avec double support (Photos découpées + Studio IA).`);
+  logClient(`${enhancedSteps.length} étape(s) préparée(s) (Photos fiche réelles + Studio IA).`);
 
   const finalRecipe: Recipe = {
     ...rawRecipe,
@@ -428,6 +446,6 @@ export async function parseRecipeAlbumWithAI(
   return {
     recipe: finalRecipe,
     logs,
-    provider: data.provider || "Gemini 3.8 Flash OCR",
+    provider: data.provider || "Gemini Flash Vision OCR",
   };
 }
