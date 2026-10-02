@@ -40,6 +40,8 @@ export default function AIImportPage() {
   const [extractedRecipe, setExtractedRecipe] = useState<Recipe | null>(null);
   const [originalCutout, setOriginalCutout] = useState<string>("");
   const [isAiStudioGenerated, setIsAiStudioGenerated] = useState<boolean>(false);
+  const [isGeneratingAiImage, setIsGeneratingAiImage] = useState<boolean>(false);
+  const [aiGenError, setAiGenError] = useState<string>("");
   const [executionLogs, setExecutionLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState<boolean>(false);
   const [copiedLogs, setCopiedLogs] = useState<boolean>(false);
@@ -128,25 +130,38 @@ export default function AIImportPage() {
   };
 
   const toggleStudioAiRegeneration = async () => {
-    if (!extractedRecipe) return;
+    if (!extractedRecipe || isGeneratingAiImage) return;
 
     if (!isAiStudioGenerated) {
-      setIsAiStudioGenerated(true);
-      // Generate Pure AI imagery for dish if prompt available
-      const dishPrompt = `Gourmet culinary presentation of ${extractedRecipe.title}, made with ${(extractedRecipe.ingredients || []).slice(0, 4).map((i) => i.name).join(", ")}, served in a beautiful ceramic bowl`;
-      
-      const generatedDishUrl =
-        extractedRecipe.studioAiImageUrl ||
-        (await requestPureAIGeneratedImage(dishPrompt, 0, extractedRecipe.title));
+      setIsGeneratingAiImage(true);
+      setAiGenError("");
 
-      setExtractedRecipe((prev) => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          imageUrl: generatedDishUrl || prev.imageUrl,
-          studioAiImageUrl: generatedDishUrl || prev.studioAiImageUrl,
-        };
-      });
+      const dishPrompt = `Gourmet culinary presentation of ${extractedRecipe.title}, made with ${(extractedRecipe.ingredients || []).slice(0, 4).map((i) => i.name).join(", ")}, served in a beautiful ceramic bowl`;
+
+      const result = await requestPureAIGeneratedImage(
+        dishPrompt,
+        0,
+        extractedRecipe.title
+      );
+
+      setIsGeneratingAiImage(false);
+
+      if (result?.imageUrl) {
+        setExtractedRecipe((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            imageUrl: result.imageUrl || prev.imageUrl,
+            studioAiImageUrl: result.imageUrl || prev.studioAiImageUrl,
+          };
+        });
+        setIsAiStudioGenerated(true);
+      } else {
+        setAiGenError(
+          result?.error ||
+            "Génération d'images OpenAI indisponible : Solde de crédits épuisé ($0.00). Veuillez recharger vos crédits sur platform.openai.com."
+        );
+      }
     } else {
       const updatedSteps = (extractedRecipe.steps || []).map((step) => ({
         ...step,
@@ -159,11 +174,12 @@ export default function AIImportPage() {
         steps: updatedSteps,
       });
       setIsAiStudioGenerated(false);
+      setAiGenError("");
     }
   };
 
   const toggleSingleStepImage = async (stepIndex: number) => {
-    if (!extractedRecipe || !extractedRecipe.steps?.[stepIndex]) return;
+    if (!extractedRecipe || !extractedRecipe.steps?.[stepIndex] || isGeneratingAiImage) return;
 
     const updatedSteps = [...extractedRecipe.steps];
     const currentStep = updatedSteps[stepIndex];
@@ -176,21 +192,31 @@ export default function AIImportPage() {
       };
       setExtractedRecipe({ ...extractedRecipe, steps: updatedSteps });
     } else {
-      const prompt = currentStep.imagePrompt || `${currentStep.title}, ${currentStep.description}`;
-      const generatedUrl =
-        currentStep.studioAiImageUrl ||
-        (await requestPureAIGeneratedImage(
-          prompt,
-          currentStep.stepNumber,
-          extractedRecipe.title
-        ));
+      setIsGeneratingAiImage(true);
+      setAiGenError("");
 
-      updatedSteps[stepIndex] = {
-        ...currentStep,
-        studioAiImageUrl: generatedUrl || currentStep.studioAiImageUrl,
-        imageUrl: generatedUrl || currentStep.imageUrl,
-      };
-      setExtractedRecipe({ ...extractedRecipe, steps: updatedSteps });
+      const prompt = currentStep.imagePrompt || `${currentStep.title}, ${currentStep.description}`;
+      const result = await requestPureAIGeneratedImage(
+        prompt,
+        currentStep.stepNumber,
+        extractedRecipe.title
+      );
+
+      setIsGeneratingAiImage(false);
+
+      if (result?.imageUrl) {
+        updatedSteps[stepIndex] = {
+          ...currentStep,
+          studioAiImageUrl: result.imageUrl,
+          imageUrl: result.imageUrl,
+        };
+        setExtractedRecipe({ ...extractedRecipe, steps: updatedSteps });
+      } else {
+        setAiGenError(
+          result?.error ||
+            "Génération d'images OpenAI indisponible : Solde de crédits épuisé ($0.00). Rendez-vous sur platform.openai.com pour recharger."
+        );
+      }
     }
   };
 
@@ -457,15 +483,35 @@ export default function AIImportPage() {
             <button
               type="button"
               onClick={toggleStudioAiRegeneration}
-              className="w-full py-2.5 px-3 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
+              disabled={isGeneratingAiImage}
+              className="w-full py-2.5 px-3 bg-slate-50 hover:bg-slate-100 disabled:opacity-60 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
             >
-              <Wand2 className="w-3.5 h-3.5 text-purple-600" />
+              {isGeneratingAiImage ? (
+                <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Wand2 className="w-3.5 h-3.5 text-purple-600" />
+              )}
               <span>
-                {isAiStudioGenerated
+                {isGeneratingAiImage
+                  ? "Génération d'image par IA en cours..."
+                  : isAiStudioGenerated
                   ? "📸 Revenir aux vraies photos découpées"
                   : "✨ Régénérer en Studio IA HD (Visuels 4K)"}
               </span>
             </button>
+
+            {/* AI Generation Notification Banner if credits are 0 or API error */}
+            {aiGenError && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col gap-1 text-xs text-amber-900 animate-in fade-in">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <strong className="font-bold">Info Génération IA :</strong>
+                    <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">{aiGenError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Step Photos Gallery */}
             <div>

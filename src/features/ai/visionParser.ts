@@ -202,7 +202,7 @@ export async function requestPureAIGeneratedImage(
   prompt: string,
   stepNumber?: number,
   recipeTitle?: string
-): Promise<string | null> {
+): Promise<{ imageUrl?: string; error?: string }> {
   try {
     const res = await fetch("/api/ai/generate-step-image", {
       method: "POST",
@@ -210,14 +210,15 @@ export async function requestPureAIGeneratedImage(
       body: JSON.stringify({ prompt, stepNumber, recipeTitle }),
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      return data?.imageUrl || null;
+    const data = await res.json();
+    if (res.ok && data?.imageUrl) {
+      return { imageUrl: data.imageUrl };
     }
-  } catch (err) {
+    return { error: data?.error || "Erreur de génération d'image" };
+  } catch (err: any) {
     console.warn("requestPureAIGeneratedImage:", err);
+    return { error: err?.message || "Erreur de connexion" };
   }
-  return null;
 }
 
 /**

@@ -16,6 +16,8 @@ export async function POST(req: NextRequest) {
     const geminiApiKey =
       process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
+    let lastError = "";
+
     // 1. OpenAI ChatGPT / DALL-E Pure Generative AI
     if (openAiApiKey) {
       const openAiImageModels = [
@@ -52,8 +54,14 @@ export async function POST(req: NextRequest) {
                 provider: `OpenAI ${model}`,
               });
             }
+          } else {
+            const errData = await res.json();
+            lastError =
+              errData?.error?.message ||
+              `Erreur OpenAI HTTP ${res.status}: ${JSON.stringify(errData)}`;
           }
-        } catch (dallErr) {
+        } catch (dallErr: any) {
+          lastError = dallErr?.message || String(dallErr);
           console.warn(`OpenAI image gen (${model}) failed:`, dallErr);
         }
       }
@@ -96,8 +104,14 @@ export async function POST(req: NextRequest) {
                 provider: `Google ${model}`,
               });
             }
+          } else {
+            const gemErr = await res.json();
+            lastError =
+              gemErr?.error?.message ||
+              `Erreur Gemini HTTP ${res.status}: ${JSON.stringify(gemErr)}`;
           }
-        } catch (geminiImgErr) {
+        } catch (geminiImgErr: any) {
+          lastError = geminiImgErr?.message || String(geminiImgErr);
           console.warn(`Gemini ${model} failed:`, geminiImgErr);
         }
       }
@@ -106,9 +120,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Pour activer la génération pure par IA (DALL-E 3 / NanoBanana), veuillez renseigner une clé OPENAI_API_KEY ou activer le quota NanoBanana.",
+          lastError ||
+          "La génération d'images par IA a échoué. Veuillez vérifier vos crédits OpenAI.",
       },
-      { status: 503 }
+      { status: 502 }
     );
   } catch (err: any) {
     return NextResponse.json(
