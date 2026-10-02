@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
@@ -117,9 +121,9 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
       const candidateModels = [
         "gemini-3.5-flash-lite",
         "gemini-3.5-flash",
+        "gemini-flash-lite-latest",
         "gemini-3.8-flash",
         "gemini-flash-latest",
-        "gemini-2.5-pro",
       ];
 
       for (const model of candidateModels) {
@@ -147,6 +151,7 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
                 temperature: 0.1,
               },
             }),
+            signal: AbortSignal.timeout(18000),
           });
 
           log(`Réponse HTTP Gemini (${model}): status ${geminiRes.status}`);

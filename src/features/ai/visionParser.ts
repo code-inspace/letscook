@@ -12,12 +12,12 @@ export interface AIParseResult {
  */
 export async function compressImageForUpload(
   file: File,
-  maxDimension: number = 1600,
-  quality: number = 0.82
+  maxDimension: number = 1200,
+  quality: number = 0.78
 ): Promise<File> {
   return new Promise((resolve) => {
-    // If file is already small (< 400KB), return as is
-    if (file.size < 400 * 1024) {
+    // If file is already small (< 300KB), return as is
+    if (file.size < 300 * 1024) {
       return resolve(file);
     }
 
@@ -270,11 +270,34 @@ export async function parseRecipeAlbumWithAI(
 
   let data: any;
   try {
-    logClient("Appel HTTP POST vers /api/ai/parse-recipe...");
-    const response = await fetch("/api/ai/parse-recipe", {
-      method: "POST",
-      body: formData,
-    });
+    let response: Response | null = null;
+    let attempts = 0;
+    const maxAttempts = 2;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      try {
+        logClient(`Appel HTTP POST vers /api/ai/parse-recipe (tentative ${attempts}/${maxAttempts})...`);
+        response = await fetch("/api/ai/parse-recipe", {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+          },
+          body: formData,
+        });
+        if (response) break;
+      } catch (networkErr: any) {
+        logClient(`Tentative ${attempts} interrompue: ${networkErr?.message || networkErr}`);
+        if (attempts >= maxAttempts) {
+          throw new Error(`Erreur réseau mobile (${networkErr?.message || "Connexion interrompue"}). Veuillez réessayer.`);
+        }
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+
+    if (!response) {
+      throw new Error("Aucune réponse reçue du serveur.");
+    }
 
     logClient(`Réponse serveur reçue avec le status: ${response.status} ${response.statusText}`);
 
