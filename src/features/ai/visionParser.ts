@@ -196,24 +196,28 @@ export async function cropAndRotateRegion(
 }
 
 /**
- * Dynamic Studio Culinary Visual helper for dishes
+ * Calls backend pure AI image generation (OpenAI ChatGPT Image / NanoBanana)
  */
-export function generateStudioDishImageUrl(recipeTitle: string, ingredients: string[]): string {
-  // 100% dynamic - returns high-quality food photography
-  return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&h=600&q=85";
-}
+export async function requestPureAIGeneratedImage(
+  prompt: string,
+  stepNumber?: number,
+  recipeTitle?: string
+): Promise<string | null> {
+  try {
+    const res = await fetch("/api/ai/generate-step-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, stepNumber, recipeTitle }),
+    });
 
-/**
- * Dynamic Studio Visual helper for steps
- */
-export function generateStudioStepImageUrl(
-  stepTitle: string,
-  stepDescription: string,
-  imagePrompt?: string,
-  stepIndex: number = 0
-): string {
-  // 100% dynamic - returns high-quality culinary process photography
-  return "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=600&h=600&q=85";
+    if (res.ok) {
+      const data = await res.json();
+      return data?.imageUrl || null;
+    }
+  } catch (err) {
+    console.warn("requestPureAIGeneratedImage:", err);
+  }
+  return null;
 }
 
 /**
@@ -358,9 +362,6 @@ export async function parseRecipeAlbumWithAI(
     mainDishCutout = URL.createObjectURL(frontFile);
   }
 
-  const ingrNames = (rawRecipe.ingredients || []).map((i: any) => i.name || "");
-  const studioDishUrl = generateStudioDishImageUrl(rawRecipe.title, ingrNames);
-
   // 3. Extract, rotate upright, and crop EACH Step Photo from the steps sheet photo
   onProgress?.("Redressement et extraction des photos d'étapes...");
   const versoIdx =
@@ -397,14 +398,6 @@ export async function parseRecipeAlbumWithAI(
         }
       }
 
-      // Studio AI recreation based on step's visual prompt & description
-      const studioAiUrl = generateStudioStepImageUrl(
-        step.title || `Étape ${index + 1}`,
-        step.description || "",
-        step.imagePrompt,
-        index
-      );
-
       return {
         stepNumber: step.stepNumber || index + 1,
         title: step.title || `Étape ${index + 1}`,
@@ -413,8 +406,8 @@ export async function parseRecipeAlbumWithAI(
         chefTip: step.chefTip,
         imagePrompt: step.imagePrompt,
         originalCutoutUrl: cutoutUrl,
-        studioAiImageUrl: studioAiUrl,
-        imageUrl: cutoutUrl || studioAiUrl,
+        studioAiImageUrl: undefined,
+        imageUrl: cutoutUrl,
       };
     })
   );
@@ -427,7 +420,7 @@ export async function parseRecipeAlbumWithAI(
     userId,
     imageUrl: mainDishCutout || URL.createObjectURL(frontFile),
     originalImageUrl: mainDishCutout || URL.createObjectURL(frontFile),
-    studioAiImageUrl: studioDishUrl,
+    studioAiImageUrl: undefined,
     steps: enhancedSteps,
     isFavorite: false,
     createdAt: new Date().toISOString(),

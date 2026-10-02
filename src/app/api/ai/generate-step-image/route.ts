@@ -16,37 +16,46 @@ export async function POST(req: NextRequest) {
     const geminiApiKey =
       process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-    // 1. OpenAI DALL-E 3 Pure Generative AI
+    // 1. OpenAI ChatGPT / DALL-E Pure Generative AI
     if (openAiApiKey) {
-      try {
-        const enhancedPrompt = `Gourmet culinary food photography, step ${stepNumber || 1} of ${recipeTitle || "cooking"}: ${prompt}, ultra realistic, 4k food magazine quality, appetizing, cinematic soft studio lighting`;
-        const res = await fetch("https://api.openai.com/v1/images/generations", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify({
-            model: "dall-e-3",
-            prompt: enhancedPrompt,
-            n: 1,
-            size: "1024x1024",
-            quality: "standard",
-          }),
-        });
+      const openAiImageModels = [
+        "chatgpt-image-latest",
+        "gpt-image-1",
+        "gpt-image-1.5",
+        "gpt-image-1-mini",
+        "dall-e-3",
+      ];
 
-        if (res.ok) {
-          const data = await res.json();
-          const imageUrl = data?.data?.[0]?.url;
-          if (imageUrl) {
-            return NextResponse.json({
-              imageUrl,
-              provider: "OpenAI DALL-E 3 (ChatGPT)",
-            });
+      for (const model of openAiImageModels) {
+        try {
+          const enhancedPrompt = `Gourmet culinary food photography, step ${stepNumber || 1} of ${recipeTitle || "cooking"}: ${prompt}, ultra realistic, 4k food magazine quality, appetizing, cinematic soft studio lighting`;
+          const res = await fetch("https://api.openai.com/v1/images/generations", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${openAiApiKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              prompt: enhancedPrompt,
+              n: 1,
+              size: "1024x1024",
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const imageUrl = data?.data?.[0]?.url;
+            if (imageUrl) {
+              return NextResponse.json({
+                imageUrl,
+                provider: `OpenAI ${model}`,
+              });
+            }
           }
+        } catch (dallErr) {
+          console.warn(`OpenAI image gen (${model}) failed:`, dallErr);
         }
-      } catch (dallErr) {
-        console.warn("DALL-E 3 generation failed:", dallErr);
       }
     }
 

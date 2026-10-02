@@ -23,8 +23,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import { Recipe } from "@/features/recipes/types";
 import {
   parseRecipeAlbumWithAI,
-  generateStudioDishImageUrl,
-  generateStudioStepImageUrl,
+  requestPureAIGeneratedImage,
 } from "@/features/ai/visionParser";
 import { saveRecipeToDb } from "@/features/recipes/actions";
 
@@ -128,33 +127,26 @@ export default function AIImportPage() {
     }
   };
 
-  const toggleStudioAiRegeneration = () => {
+  const toggleStudioAiRegeneration = async () => {
     if (!extractedRecipe) return;
 
     if (!isAiStudioGenerated) {
-      const ingrNames = (extractedRecipe.ingredients || []).map((i) => i.name);
-      const studioUrl =
-        extractedRecipe.studioAiImageUrl ||
-        generateStudioDishImageUrl(extractedRecipe.title, ingrNames);
-
-      const updatedSteps = (extractedRecipe.steps || []).map((step, idx) => ({
-        ...step,
-        imageUrl:
-          step.studioAiImageUrl ||
-          generateStudioStepImageUrl(
-            step.title,
-            step.description,
-            step.imagePrompt,
-            idx
-          ),
-      }));
-
-      setExtractedRecipe({
-        ...extractedRecipe,
-        imageUrl: studioUrl,
-        steps: updatedSteps,
-      });
       setIsAiStudioGenerated(true);
+      // Generate Pure AI imagery for dish if prompt available
+      const dishPrompt = `Gourmet culinary presentation of ${extractedRecipe.title}, made with ${(extractedRecipe.ingredients || []).slice(0, 4).map((i) => i.name).join(", ")}, served in a beautiful ceramic bowl`;
+      
+      const generatedDishUrl =
+        extractedRecipe.studioAiImageUrl ||
+        (await requestPureAIGeneratedImage(dishPrompt, 0, extractedRecipe.title));
+
+      setExtractedRecipe((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          imageUrl: generatedDishUrl || prev.imageUrl,
+          studioAiImageUrl: generatedDishUrl || prev.studioAiImageUrl,
+        };
+      });
     } else {
       const updatedSteps = (extractedRecipe.steps || []).map((step) => ({
         ...step,
@@ -170,30 +162,36 @@ export default function AIImportPage() {
     }
   };
 
-  const toggleSingleStepImage = (stepIndex: number) => {
+  const toggleSingleStepImage = async (stepIndex: number) => {
     if (!extractedRecipe || !extractedRecipe.steps?.[stepIndex]) return;
 
     const updatedSteps = [...extractedRecipe.steps];
     const currentStep = updatedSteps[stepIndex];
     const isCurrentlyStudio = currentStep.imageUrl === currentStep.studioAiImageUrl;
 
-    updatedSteps[stepIndex] = {
-      ...currentStep,
-      imageUrl: isCurrentlyStudio
-        ? currentStep.originalCutoutUrl || currentStep.imageUrl
-        : currentStep.studioAiImageUrl ||
-          generateStudioStepImageUrl(
-            currentStep.title,
-            currentStep.description,
-            currentStep.imagePrompt,
-            stepIndex
-          ),
-    };
+    if (isCurrentlyStudio) {
+      updatedSteps[stepIndex] = {
+        ...currentStep,
+        imageUrl: currentStep.originalCutoutUrl || currentStep.imageUrl,
+      };
+      setExtractedRecipe({ ...extractedRecipe, steps: updatedSteps });
+    } else {
+      const prompt = currentStep.imagePrompt || `${currentStep.title}, ${currentStep.description}`;
+      const generatedUrl =
+        currentStep.studioAiImageUrl ||
+        (await requestPureAIGeneratedImage(
+          prompt,
+          currentStep.stepNumber,
+          extractedRecipe.title
+        ));
 
-    setExtractedRecipe({
-      ...extractedRecipe,
-      steps: updatedSteps,
-    });
+      updatedSteps[stepIndex] = {
+        ...currentStep,
+        studioAiImageUrl: generatedUrl || currentStep.studioAiImageUrl,
+        imageUrl: generatedUrl || currentStep.imageUrl,
+      };
+      setExtractedRecipe({ ...extractedRecipe, steps: updatedSteps });
+    }
   };
 
   const handleCopyLogs = () => {
