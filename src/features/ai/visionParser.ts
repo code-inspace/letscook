@@ -7,6 +7,74 @@ export interface AIParseResult {
 }
 
 /**
+ * Compresses and downscales image files on the client before sending to Vercel Serverless Functions.
+ * Keeps image resolution crisp (max 1600px) while reducing file size from 5-10MB to <500KB.
+ */
+export async function compressImageForUpload(
+  file: File,
+  maxDimension: number = 1600,
+  quality: number = 0.82
+): Promise<File> {
+  return new Promise((resolve) => {
+    // If file is already tiny (< 400KB), return as is
+    if (file.size < 400 * 1024) {
+      return resolve(file);
+    }
+
+    try {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve(file);
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return resolve(file);
+            const fileName = file.name ? file.name.replace(/\.[^/.]+$/, ".jpg") : "photo.jpg";
+            const compressedFile = new File([blob], fileName, {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+
+      img.src = objectUrl;
+    } catch {
+      resolve(file);
+    }
+  });
+}
+
+/**
  * Loads an image from a File, Data URL, or Remote URL safely across all mobile browsers
  */
 async function loadImageElement(source: string | File): Promise<HTMLImageElement> {
@@ -125,7 +193,7 @@ export function generateStudioDishImageUrl(recipeTitle: string, ingredients: str
 }
 
 /**
- * Intelligent Multi-Photo Recipe Album Parser with detailed execution logging
+ * Intelligent Multi-Photo Recipe Album Parser with auto-compression and detailed logging
  */
 export async function parseRecipeAlbumWithAI(
   files: File[],
@@ -140,13 +208,32 @@ export async function parseRecipeAlbumWithAI(
 
   logClient(`Démarrage de l'analyse avec ${files.length} photo(s)`);
   files.forEach((f, i) => {
-    logClient(`Photo ${i + 1}: ${f.name} (${(f.size / (1024 * 1024)).toFixed(2)} MB, ${f.type})`);
+    logClient(`Photo ${i + 1} brute: ${f.name} (${(f.size / (1024 * 1024)).toFixed(2)} MB, ${f.type})`);
   });
+
+  // 1. Auto-compress images client-side to ensure total payload is well under Vercel's 4.5MB limit
+  onProgress?.("Optimisation & compression des photos pour l'IA...");
+  logClient("Compression intelligente des photos (max 1600px, JPEG 82%)...");
+
+  const compressedFiles: File[] = await Promise.all(
+    files.map(async (file, idx) => {
+      const initialSize = file.size;
+      const compressed = await compressImageForUpload(file, 1600, 0.82);
+      const newSize = compressed.size;
+      logClient(
+        `Photo ${idx + 1} optimisée: ${(initialSize / (1024 * 1024)).toFixed(2)} MB ➔ ${(newSize / (1024 * 1024)).toFixed(2)} MB (${Math.round((newSize / initialSize) * 100)}%)`
+      );
+      return compressed;
+    })
+  );
+
+  const totalPayloadMb = (compressedFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2);
+  logClient(`Poids total du payload réseau: ${totalPayloadMb} MB (limite Vercel: 4.5 MB)`);
 
   onProgress?.("Envoi des photos à l'IA multimodale...");
 
   const formData = new FormData();
-  files.forEach((file, i) => {
+  compressedFiles.forEach((file, i) => {
     formData.append(`file_${i}`, file);
   });
 
@@ -162,7 +249,17 @@ export async function parseRecipeAlbumWithAI(
 
     logClient(`Réponse serveur reçue avec le status: ${response.status} ${response.statusText}`);
 
-    data = await response.json();
+    const responseText = await response.text();
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      logClient(`ERREUR: Réponse non-JSON du serveur (status ${response.status}): ${responseText.substring(0, 120)}`);
+      if (response.status === 413) {
+        throw new Error("Payload trop volumineux (HTTP 413). Les photos dépassent la limite autorisée.");
+      }
+      throw new Error(`Erreur serveur HTTP ${response.status}: ${responseText.substring(0, 80)}`);
+    }
 
     if (Array.isArray(data?.logs)) {
       data.logs.forEach((sLog: string) => logs.push(sLog));
@@ -183,10 +280,10 @@ export async function parseRecipeAlbumWithAI(
   const rawRecipe = data.recipe;
   logClient(`Recette extraite: "${rawRecipe.title}" (${rawRecipe.ingredients?.length || 0} ingrédients, ${rawRecipe.steps?.length || 0} étapes)`);
 
-  // 1. Extract and cutout Main Dish Image
+  // 2. Extract and cutout Main Dish Image
   onProgress?.("Détourage et redressement du plat principal...");
-  const frontIdx = Math.min(rawRecipe.frontPhotoIndex || 0, files.length - 1);
-  const frontFile = files[frontIdx] || files[0];
+  const frontIdx = Math.min(rawRecipe.frontPhotoIndex || 0, compressedFiles.length - 1);
+  const frontFile = compressedFiles[frontIdx] || compressedFiles[0];
   const frontRotation = rawRecipe.frontPhotoRotation || 0;
   const dishCropBox = rawRecipe.mainDishCropBox || [150, 100, 800, 850];
 
@@ -205,9 +302,9 @@ export async function parseRecipeAlbumWithAI(
     mainDishCutout = URL.createObjectURL(frontFile);
   }
 
-  // 2. Extract and crop EACH Step Photo from the steps sheet photo
+  // 3. Extract and crop EACH Step Photo from the steps sheet photo
   onProgress?.("Recadrage des photos pour chaque étape de cuisine...");
-  const versoFile = files.length > 1 ? files[1] : files[0];
+  const versoFile = compressedFiles.length > 1 ? compressedFiles[1] : compressedFiles[0];
 
   const enhancedSteps: RecipeStep[] = await Promise.all(
     (rawRecipe.steps || []).map(async (step: any, index: number) => {
