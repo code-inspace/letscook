@@ -114,10 +114,11 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
     // 1. Google Gemini 3.8 Flash Multimodal Vision
     if (geminiApiKey) {
       const candidateModels = [
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
         "gemini-3.8-flash",
-        "gemini-2.5-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
+        "gemini-flash-latest",
+        "gemini-2.5-pro",
       ];
 
       for (const model of candidateModels) {
