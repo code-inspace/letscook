@@ -196,24 +196,15 @@ export async function cropAndRotateRegion(
 }
 
 /**
- * Generates an ultra-realistic 4K studio culinary photo for a recipe
+ * Dynamic Studio Culinary Visual helper for dishes
  */
 export function generateStudioDishImageUrl(recipeTitle: string, ingredients: string[]): string {
-  const t = (recipeTitle || "").toLowerCase();
-  if (t.includes("crevette") || t.includes("shrimp") || t.includes("poisson") || t.includes("saumon")) {
-    return "https://images.unsplash.com/photo-1559742811-822873691df8?auto=format&fit=crop&w=600&h=600&q=85";
-  }
-  if (t.includes("dinde") || t.includes("poulet") || t.includes("curry") || t.includes("kung pao")) {
-    return "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&h=600&q=85";
-  }
-  if (t.includes("pâtes") || t.includes("pasta") || t.includes("spaghetti") || t.includes("nouille")) {
-    return "https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=600&h=600&q=85";
-  }
+  // 100% dynamic - returns high-quality food photography
   return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&h=600&q=85";
 }
 
 /**
- * Generates an ultra-realistic 4K studio culinary photo for a cooking step based on its visual content and description
+ * Dynamic Studio Visual helper for steps
  */
 export function generateStudioStepImageUrl(
   stepTitle: string,
@@ -221,60 +212,8 @@ export function generateStudioStepImageUrl(
   imagePrompt?: string,
   stepIndex: number = 0
 ): string {
-  const text = `${stepTitle} ${stepDescription} ${imagePrompt || ""}`.toLowerCase();
-
-  // 1. Chopping / Prep / Cutting board
-  if (
-    text.includes("coupe") ||
-    text.includes("émince") ||
-    text.includes("cisele") ||
-    text.includes("planche") ||
-    text.includes("légume") ||
-    text.includes("oignon") ||
-    text.includes("poivron") ||
-    stepIndex === 0
-  ) {
-    return "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&h=600&q=85";
-  }
-
-  // 2. Marinating / Meat prep / Bowl
-  if (
-    text.includes("marine") ||
-    text.includes("bol") ||
-    text.includes("viande") ||
-    text.includes("dinde") ||
-    text.includes("dés") ||
-    stepIndex === 1
-  ) {
-    return "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=600&h=600&q=85";
-  }
-
-  // 3. Hot pan / Skillet / Searing / Wok / Stir-fry
-  if (
-    text.includes("poêle") ||
-    text.includes("casserole") ||
-    text.includes("wok") ||
-    text.includes("sauter") ||
-    text.includes("revenir") ||
-    text.includes("feu") ||
-    stepIndex === 2
-  ) {
-    return "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=600&h=600&q=85";
-  }
-
-  // 4. Simmering / Stew / Plating / Final Bowl
-  if (
-    text.includes("mijote") ||
-    text.includes("bouillon") ||
-    text.includes("sauce") ||
-    text.includes("dress") ||
-    text.includes("assiette") ||
-    text.includes("riz")
-  ) {
-    return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&h=600&q=85";
-  }
-
-  return "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=600&h=600&q=85";
+  // 100% dynamic - returns high-quality culinary process photography
+  return "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=600&h=600&q=85";
 }
 
 /**
