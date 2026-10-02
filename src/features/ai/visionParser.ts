@@ -206,6 +206,24 @@ export function generateStudioDishImageUrl(recipeTitle: string, ingredients: str
 }
 
 /**
+ * Generates an ultra-realistic 4K studio culinary photo for a cooking step based on its visual content and description
+ */
+export function generateStudioStepImageUrl(
+  stepTitle: string,
+  stepDescription: string,
+  imagePrompt?: string,
+  seedModifier: number = 0
+): string {
+  const baseDescription = imagePrompt || `${stepTitle}, ${stepDescription.slice(0, 140)}`;
+  const promptText = encodeURIComponent(
+    `gourmet culinary cooking process photo: ${baseDescription}, authentic kitchen cooking action, appetizing food magazine quality, crisp detail 8k`
+  );
+  return `https://image.pollinations.ai/prompt/${promptText}?width=600&height=600&nologo=true&seed=${Math.floor(
+    1000 + seedModifier * 777 + (stepTitle.length * 37) % 9999
+  )}`;
+}
+
+/**
  * Intelligent Multi-Photo Recipe Album Parser with auto-compression, auto-rotation and OCR
  */
 export async function parseRecipeAlbumWithAI(
@@ -318,20 +336,24 @@ export async function parseRecipeAlbumWithAI(
     mainDishCutout = URL.createObjectURL(frontFile);
   }
 
-  // 3. Extract, rotate upright and crop EACH Step Photo from the steps sheet photo
-  onProgress?.("Redressement et recadrage des photos pour chaque étape...");
+  const ingrNames = (rawRecipe.ingredients || []).map((i: any) => i.name || "");
+  const studioDishUrl = generateStudioDishImageUrl(rawRecipe.title, ingrNames);
+
+  // 3. Extract, rotate upright, and crop EACH Step Photo from the steps sheet photo
+  // + Generate HD Studio AI recreation URL based on step visual imagePrompt & description
+  onProgress?.("Redressement et génération des photos d'étapes (Réel + Studio IA)...");
   const versoIdx = compressedFiles.length > 1 ? 1 : 0;
 
   const enhancedSteps: RecipeStep[] = await Promise.all(
     (rawRecipe.steps || []).map(async (step: any, index: number) => {
-      let stepImageUrl = step.imageUrl;
+      let cutoutUrl: string | undefined = step.imageUrl;
       const stepPhotoIdx = step.stepPhotoIndex ?? versoIdx;
       const stepFile = compressedFiles[stepPhotoIdx] || compressedFiles[0];
       const stepRotation = step.stepPhotoRotation ?? photoOrientations[stepPhotoIdx] ?? 0;
 
       if (stepFile && step.stepCropBox) {
         try {
-          stepImageUrl = await cropAndRotateRegion(
+          cutoutUrl = await cropAndRotateRegion(
             stepFile,
             step.stepCropBox,
             stepRotation,
@@ -339,9 +361,17 @@ export async function parseRecipeAlbumWithAI(
           );
         } catch (cropErr) {
           logClient(`Avertissement recadrage étape ${index + 1}: ${cropErr}`);
-          stepImageUrl = undefined;
+          cutoutUrl = undefined;
         }
       }
+
+      // Studio AI recreation based on step's visual prompt & description
+      const studioAiUrl = generateStudioStepImageUrl(
+        step.title || `Étape ${index + 1}`,
+        step.description || "",
+        step.imagePrompt,
+        index
+      );
 
       return {
         stepNumber: step.stepNumber || index + 1,
@@ -349,18 +379,23 @@ export async function parseRecipeAlbumWithAI(
         description: step.description || "",
         durationMinutes: step.durationMinutes,
         chefTip: step.chefTip,
-        imageUrl: stepImageUrl,
+        imagePrompt: step.imagePrompt,
+        originalCutoutUrl: cutoutUrl,
+        studioAiImageUrl: studioAiUrl,
+        imageUrl: cutoutUrl || studioAiUrl,
       };
     })
   );
 
-  logClient(`${enhancedSteps.length} étape(s) redressée(s) et recadrée(s) avec succès.`);
+  logClient(`${enhancedSteps.length} étape(s) préparée(s) avec double support (Photos découpées + Studio IA).`);
 
   const finalRecipe: Recipe = {
     ...rawRecipe,
     id: `rec_${Date.now()}`,
     userId,
     imageUrl: mainDishCutout || URL.createObjectURL(frontFile),
+    originalImageUrl: mainDishCutout || URL.createObjectURL(frontFile),
+    studioAiImageUrl: studioDishUrl,
     steps: enhancedSteps,
     isFavorite: false,
     createdAt: new Date().toISOString(),

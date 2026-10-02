@@ -12,6 +12,9 @@ export interface RecipeStep {
   title: string;
   description: string;
   imageUrl?: string;
+  originalCutoutUrl?: string;
+  studioAiImageUrl?: string;
+  imagePrompt?: string;
   durationMinutes?: number;
   chefTip?: string;
 }
@@ -33,6 +36,7 @@ export interface Recipe {
   category: string;
   imageUrl: string;
   originalImageUrl?: string;
+  studioAiImageUrl?: string;
   prepTimeMinutes: number;
   difficulty: "Easy" | "Medium" | "Hard";
   rating: number;

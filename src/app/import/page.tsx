@@ -21,7 +21,11 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { Recipe } from "@/features/recipes/types";
-import { parseRecipeAlbumWithAI, generateStudioDishImageUrl } from "@/features/ai/visionParser";
+import {
+  parseRecipeAlbumWithAI,
+  generateStudioDishImageUrl,
+  generateStudioStepImageUrl,
+} from "@/features/ai/visionParser";
 import { saveRecipeToDb } from "@/features/recipes/actions";
 
 export default function AIImportPage() {
@@ -129,13 +133,67 @@ export default function AIImportPage() {
 
     if (!isAiStudioGenerated) {
       const ingrNames = (extractedRecipe.ingredients || []).map((i) => i.name);
-      const studioUrl = generateStudioDishImageUrl(extractedRecipe.title, ingrNames);
-      setExtractedRecipe({ ...extractedRecipe, imageUrl: studioUrl });
+      const studioUrl =
+        extractedRecipe.studioAiImageUrl ||
+        generateStudioDishImageUrl(extractedRecipe.title, ingrNames);
+
+      const updatedSteps = (extractedRecipe.steps || []).map((step, idx) => ({
+        ...step,
+        imageUrl:
+          step.studioAiImageUrl ||
+          generateStudioStepImageUrl(
+            step.title,
+            step.description,
+            step.imagePrompt,
+            idx
+          ),
+      }));
+
+      setExtractedRecipe({
+        ...extractedRecipe,
+        imageUrl: studioUrl,
+        steps: updatedSteps,
+      });
       setIsAiStudioGenerated(true);
     } else {
-      setExtractedRecipe({ ...extractedRecipe, imageUrl: originalCutout });
+      const updatedSteps = (extractedRecipe.steps || []).map((step) => ({
+        ...step,
+        imageUrl: step.originalCutoutUrl || step.imageUrl,
+      }));
+
+      setExtractedRecipe({
+        ...extractedRecipe,
+        imageUrl: originalCutout || extractedRecipe.originalImageUrl || extractedRecipe.imageUrl,
+        steps: updatedSteps,
+      });
       setIsAiStudioGenerated(false);
     }
+  };
+
+  const toggleSingleStepImage = (stepIndex: number) => {
+    if (!extractedRecipe || !extractedRecipe.steps?.[stepIndex]) return;
+
+    const updatedSteps = [...extractedRecipe.steps];
+    const currentStep = updatedSteps[stepIndex];
+    const isCurrentlyStudio = currentStep.imageUrl === currentStep.studioAiImageUrl;
+
+    updatedSteps[stepIndex] = {
+      ...currentStep,
+      imageUrl: isCurrentlyStudio
+        ? currentStep.originalCutoutUrl || currentStep.imageUrl
+        : currentStep.studioAiImageUrl ||
+          generateStudioStepImageUrl(
+            currentStep.title,
+            currentStep.description,
+            currentStep.imagePrompt,
+            stepIndex
+          ),
+    };
+
+    setExtractedRecipe({
+      ...extractedRecipe,
+      steps: updatedSteps,
+    });
   };
 
   const handleCopyLogs = () => {
@@ -407,29 +465,51 @@ export default function AIImportPage() {
 
             {/* Step Photos Gallery */}
             <div>
-              <span className="text-xs font-bold text-[#181A20]">Photos des étapes extraites :</span>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {extractedRecipe.steps?.map((step) => (
-                  <div
-                    key={step.stepNumber}
-                    className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-2xs group"
-                  >
-                    {step.imageUrl ? (
-                      <img
-                        src={step.imageUrl}
-                        alt={`Étape ${step.stepNumber}`}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400">
-                        <ImageIcon className="w-4 h-4" />
-                      </div>
-                    )}
-                    <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md backdrop-blur-xs">
-                      Étape {step.stepNumber}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-[#181A20]">Visuels des étapes ({extractedRecipe.steps?.length || 0}) :</span>
+                <span className="text-[10px] text-[#8E929E]">Cliquez pour alterner Fiche / IA</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-1">
+                {extractedRecipe.steps?.map((step, idx) => {
+                  const isStudio = step.imageUrl === step.studioAiImageUrl;
+                  return (
+                    <button
+                      key={step.stepNumber}
+                      type="button"
+                      onClick={() => toggleSingleStepImage(idx)}
+                      className="relative aspect-square rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-2xs group text-left cursor-pointer active:scale-95 transition-all hover:border-[#5DB534]"
+                      title="Cliquez pour alterner entre photo fiche et recréation IA"
+                    >
+                      {step.imageUrl ? (
+                        <img
+                          src={step.imageUrl}
+                          alt={`Étape ${step.stepNumber}`}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400">
+                          <ImageIcon className="w-4 h-4" />
+                        </div>
+                      )}
+
+                      {/* Step Number Tag */}
+                      <span className="absolute top-1.5 left-1.5 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md backdrop-blur-xs">
+                        Étape {step.stepNumber}
+                      </span>
+
+                      {/* Source badge */}
+                      <span
+                        className={`absolute bottom-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-0.5 ${
+                          isStudio
+                            ? "bg-purple-600 text-white shadow-xs"
+                            : "bg-emerald-700/90 text-white"
+                        }`}
+                      >
+                        {isStudio ? "✨ Studio IA" : "📸 Fiche"}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

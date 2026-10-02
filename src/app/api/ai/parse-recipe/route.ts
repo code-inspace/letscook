@@ -106,7 +106,8 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
       "durationMinutes": 10,
       "chefTip": "Astuce si mentionnée",
       "stepPhotoIndex": 1,
-      "stepCropBox": [80, 50, 320, 350]
+      "stepCropBox": [80, 50, 320, 350],
+      "imagePrompt": "Detailed English food photography prompt describing the exact visual scene seen in this step photo (e.g. 'Top-down photo of chopped sweet potatoes and carrots neatly cut on a rustic wooden board with sliced garlic and ginger, studio lighting, 8k culinary photograph')"
     }
   ]
 }`;
