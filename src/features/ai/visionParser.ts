@@ -16,7 +16,7 @@ export async function compressImageForUpload(
   quality: number = 0.82
 ): Promise<File> {
   return new Promise((resolve) => {
-    // If file is already tiny (< 400KB), return as is
+    // If file is already small (< 400KB), return as is
     if (file.size < 400 * 1024) {
       return resolve(file);
     }
@@ -110,7 +110,8 @@ async function loadImageElement(source: string | File): Promise<HTMLImageElement
 }
 
 /**
- * Crops and rotates a normalized region [ymin, xmin, ymax, xmax] (scale 0-1000) from an image.
+ * Rotates an image by specified degrees (0, 90, 180, 270) to make it upright,
+ * then crops the normalized bounding box [ymin, xmin, ymax, xmax] (0-1000).
  */
 export async function cropAndRotateRegion(
   source: string | File,
@@ -120,59 +121,71 @@ export async function cropAndRotateRegion(
 ): Promise<string> {
   try {
     const img = await loadImageElement(source);
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return typeof source === "string" ? source : URL.createObjectURL(source);
-    }
-
-    const box = cropBox && cropBox.length === 4 ? cropBox : [0, 0, 1000, 1000];
-    const [ymin, xmin, ymax, xmax] = box;
+    const rad = ((rotationDegrees % 360) * Math.PI) / 180;
+    const isSideways = rotationDegrees === 90 || rotationDegrees === 270;
 
     const naturalWidth = img.naturalWidth || img.width || 800;
     const naturalHeight = img.naturalHeight || img.height || 600;
 
-    const sx = Math.max(0, (xmin / 1000) * naturalWidth);
-    const sy = Math.max(0, (ymin / 1000) * naturalHeight);
-    const sWidth = Math.min(naturalWidth - sx, Math.max(10, ((xmax - xmin) / 1000) * naturalWidth));
-    const sHeight = Math.min(naturalHeight - sy, Math.max(10, ((ymax - ymin) / 1000) * naturalHeight));
+    // 1. Create canvas with upright dimensions
+    const rotCanvas = document.createElement("canvas");
+    rotCanvas.width = isSideways ? naturalHeight : naturalWidth;
+    rotCanvas.height = isSideways ? naturalWidth : naturalHeight;
+    const rotCtx = rotCanvas.getContext("2d");
+    if (!rotCtx) {
+      return typeof source === "string" ? source : URL.createObjectURL(source);
+    }
 
+    rotCtx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+    rotCtx.rotate(rad);
+    rotCtx.drawImage(img, -naturalWidth / 2, -naturalHeight / 2);
+
+    // 2. Crop the specified normalized box from the upright image
+    const uprightWidth = rotCanvas.width;
+    const uprightHeight = rotCanvas.height;
+
+    const box = cropBox && cropBox.length === 4 ? cropBox : [0, 0, 1000, 1000];
+    const [ymin, xmin, ymax, xmax] = box;
+
+    const sx = Math.max(0, (xmin / 1000) * uprightWidth);
+    const sy = Math.max(0, (ymin / 1000) * uprightHeight);
+    const sWidth = Math.min(uprightWidth - sx, Math.max(10, ((xmax - xmin) / 1000) * uprightWidth));
+    const sHeight = Math.min(uprightHeight - sy, Math.max(10, ((ymax - ymin) / 1000) * uprightHeight));
+
+    // 3. Final target cropped canvas
     const targetSize = 500;
-    canvas.width = targetSize;
-    canvas.height = targetSize;
-
-    ctx.save();
-    if (rotationDegrees !== 0) {
-      ctx.translate(targetSize / 2, targetSize / 2);
-      ctx.rotate((rotationDegrees * Math.PI) / 180);
-      ctx.translate(-targetSize / 2, -targetSize / 2);
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = targetSize;
+    cropCanvas.height = targetSize;
+    const cropCtx = cropCanvas.getContext("2d");
+    if (!cropCtx) {
+      return typeof source === "string" ? source : URL.createObjectURL(source);
     }
 
     if (circular) {
-      ctx.beginPath();
+      cropCtx.beginPath();
       const center = targetSize / 2;
       const radius = targetSize * 0.47;
-      ctx.arc(center, center, radius, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
+      cropCtx.arc(center, center, radius, 0, Math.PI * 2);
+      cropCtx.closePath();
+      cropCtx.clip();
     }
 
-    ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, targetSize, targetSize);
-    ctx.restore();
+    cropCtx.drawImage(rotCanvas, sx, sy, sWidth, sHeight, 0, 0, targetSize, targetSize);
 
     if (circular) {
-      ctx.save();
-      ctx.beginPath();
+      cropCtx.save();
+      cropCtx.beginPath();
       const center = targetSize / 2;
       const radius = targetSize * 0.47;
-      ctx.arc(center, center, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.lineWidth = 4;
-      ctx.stroke();
-      ctx.restore();
+      cropCtx.arc(center, center, radius, 0, Math.PI * 2);
+      cropCtx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+      cropCtx.lineWidth = 4;
+      cropCtx.stroke();
+      cropCtx.restore();
     }
 
-    return canvas.toDataURL("image/jpeg", 0.85);
+    return cropCanvas.toDataURL("image/jpeg", 0.88);
   } catch (err) {
     console.warn("cropAndRotateRegion fallback:", err);
     return typeof source === "string" ? source : URL.createObjectURL(source);
@@ -193,7 +206,7 @@ export function generateStudioDishImageUrl(recipeTitle: string, ingredients: str
 }
 
 /**
- * Intelligent Multi-Photo Recipe Album Parser with auto-compression and detailed logging
+ * Intelligent Multi-Photo Recipe Album Parser with auto-compression, auto-rotation and OCR
  */
 export async function parseRecipeAlbumWithAI(
   files: File[],
@@ -230,14 +243,12 @@ export async function parseRecipeAlbumWithAI(
   const totalPayloadMb = (compressedFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2);
   logClient(`Poids total du payload réseau: ${totalPayloadMb} MB (limite Vercel: 4.5 MB)`);
 
-  onProgress?.("Envoi des photos à l'IA multimodale...");
+  onProgress?.("Analyse multimodale & OCR par IA (Gemini 3.8 Flash)...");
 
   const formData = new FormData();
   compressedFiles.forEach((file, i) => {
     formData.append(`file_${i}`, file);
   });
-
-  onProgress?.("Analyse et détection des zones d'étapes et du plat...");
 
   let data: any;
   try {
@@ -256,7 +267,7 @@ export async function parseRecipeAlbumWithAI(
     } catch (parseError) {
       logClient(`ERREUR: Réponse non-JSON du serveur (status ${response.status}): ${responseText.substring(0, 120)}`);
       if (response.status === 413) {
-        throw new Error("Payload trop volumineux (HTTP 413). Les photos dépassent la limite autorisée.");
+        throw new Error("Payload trop volumineux (HTTP 413).");
       }
       throw new Error(`Erreur serveur HTTP ${response.status}: ${responseText.substring(0, 80)}`);
     }
@@ -278,13 +289,18 @@ export async function parseRecipeAlbumWithAI(
   }
 
   const rawRecipe = data.recipe;
-  logClient(`Recette extraite: "${rawRecipe.title}" (${rawRecipe.ingredients?.length || 0} ingrédients, ${rawRecipe.steps?.length || 0} étapes)`);
+  const photoOrientations: number[] = Array.isArray(rawRecipe.photoOrientations)
+    ? rawRecipe.photoOrientations
+    : [0, 0];
 
-  // 2. Extract and cutout Main Dish Image
-  onProgress?.("Détourage et redressement du plat principal...");
-  const frontIdx = Math.min(rawRecipe.frontPhotoIndex || 0, compressedFiles.length - 1);
+  logClient(`Recette OCR extraite: "${rawRecipe.title}" (${rawRecipe.ingredients?.length || 0} ingrédients, ${rawRecipe.steps?.length || 0} étapes)`);
+  logClient(`Rotations détectées par l'IA: [${photoOrientations.join("°, ")}°]`);
+
+  // 2. Extract, rotate upright and cutout Main Dish Image
+  onProgress?.("Redressement et détourage du plat principal...");
+  const frontIdx = Math.min(rawRecipe.frontPhotoIndex ?? 0, compressedFiles.length - 1);
   const frontFile = compressedFiles[frontIdx] || compressedFiles[0];
-  const frontRotation = rawRecipe.frontPhotoRotation || 0;
+  const frontRotation = rawRecipe.frontPhotoRotation ?? photoOrientations[frontIdx] ?? 0;
   const dishCropBox = rawRecipe.mainDishCropBox || [150, 100, 800, 850];
 
   logClient(`Détourage plat principal (photo index ${frontIdx}, rotation ${frontRotation}°, cropBox: [${dishCropBox.join(",")}])`);
@@ -296,29 +312,33 @@ export async function parseRecipeAlbumWithAI(
       frontRotation,
       true
     );
-    logClient("Détourage du plat principal réussi.");
+    logClient("Détourage et redressement du plat principal réussi.");
   } catch (err) {
     logClient(`Avertissement détourage: ${err}`);
     mainDishCutout = URL.createObjectURL(frontFile);
   }
 
-  // 3. Extract and crop EACH Step Photo from the steps sheet photo
-  onProgress?.("Recadrage des photos pour chaque étape de cuisine...");
-  const versoFile = compressedFiles.length > 1 ? compressedFiles[1] : compressedFiles[0];
+  // 3. Extract, rotate upright and crop EACH Step Photo from the steps sheet photo
+  onProgress?.("Redressement et recadrage des photos pour chaque étape...");
+  const versoIdx = compressedFiles.length > 1 ? 1 : 0;
 
   const enhancedSteps: RecipeStep[] = await Promise.all(
     (rawRecipe.steps || []).map(async (step: any, index: number) => {
       let stepImageUrl = step.imageUrl;
+      const stepPhotoIdx = step.stepPhotoIndex ?? versoIdx;
+      const stepFile = compressedFiles[stepPhotoIdx] || compressedFiles[0];
+      const stepRotation = step.stepPhotoRotation ?? photoOrientations[stepPhotoIdx] ?? 0;
 
-      if (versoFile && step.stepCropBox) {
+      if (stepFile && step.stepCropBox) {
         try {
           stepImageUrl = await cropAndRotateRegion(
-            versoFile,
+            stepFile,
             step.stepCropBox,
-            0,
+            stepRotation,
             false
           );
-        } catch {
+        } catch (cropErr) {
+          logClient(`Avertissement recadrage étape ${index + 1}: ${cropErr}`);
           stepImageUrl = undefined;
         }
       }
@@ -334,7 +354,7 @@ export async function parseRecipeAlbumWithAI(
     })
   );
 
-  logClient(`${enhancedSteps.length} étape(s) préparée(s) avec succès.`);
+  logClient(`${enhancedSteps.length} étape(s) redressée(s) et recadrée(s) avec succès.`);
 
   const finalRecipe: Recipe = {
     ...rawRecipe,
@@ -350,6 +370,6 @@ export async function parseRecipeAlbumWithAI(
   return {
     recipe: finalRecipe,
     logs,
-    provider: data.provider || "Vision AI",
+    provider: data.provider || "Gemini 3.8 Flash OCR",
   };
 }
