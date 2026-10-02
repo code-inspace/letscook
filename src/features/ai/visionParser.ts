@@ -152,8 +152,8 @@ export async function cropAndRotateRegion(
     const sWidth = Math.min(uprightWidth - sx, Math.max(10, ((xmax - xmin) / 1000) * uprightWidth));
     const sHeight = Math.min(uprightHeight - sy, Math.max(10, ((ymax - ymin) / 1000) * uprightHeight));
 
-    // 3. Final target cropped canvas
-    const targetSize = 500;
+    // 3. Final target cropped canvas with culinary enhancement
+    const targetSize = 600;
     const cropCanvas = document.createElement("canvas");
     cropCanvas.width = targetSize;
     cropCanvas.height = targetSize;
@@ -171,7 +171,10 @@ export async function cropAndRotateRegion(
       cropCtx.clip();
     }
 
+    // Apply culinary studio lighting filter: boost contrast, saturation, and vibrancy
+    cropCtx.filter = "contrast(1.16) saturate(1.28) brightness(1.04)";
     cropCtx.drawImage(rotCanvas, sx, sy, sWidth, sHeight, 0, 0, targetSize, targetSize);
+    cropCtx.filter = "none";
 
     if (circular) {
       cropCtx.save();
@@ -179,13 +182,13 @@ export async function cropAndRotateRegion(
       const center = targetSize / 2;
       const radius = targetSize * 0.47;
       cropCtx.arc(center, center, radius, 0, Math.PI * 2);
-      cropCtx.strokeStyle = "rgba(255, 255, 255, 0.45)";
-      cropCtx.lineWidth = 4;
+      cropCtx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+      cropCtx.lineWidth = 5;
       cropCtx.stroke();
       cropCtx.restore();
     }
 
-    return cropCanvas.toDataURL("image/jpeg", 0.88);
+    return cropCanvas.toDataURL("image/jpeg", 0.92);
   } catch (err) {
     console.warn("cropAndRotateRegion fallback:", err);
     return typeof source === "string" ? source : URL.createObjectURL(source);
@@ -193,15 +196,20 @@ export async function cropAndRotateRegion(
 }
 
 /**
- * Generates an ultra-realistic 4K studio culinary photo for a recipe using free FLUX.1 inference
+ * Generates an ultra-realistic 4K studio culinary photo for a recipe
  */
 export function generateStudioDishImageUrl(recipeTitle: string, ingredients: string[]): string {
-  const ingrSummary = ingredients.slice(0, 3).join(", ");
-  const cleanTitle = recipeTitle.replace(/[^a-zA-Z0-9à-úÀ-Ú\s]/g, " ").trim();
-  const promptText = encodeURIComponent(
-    `gourmet culinary photo of ${cleanTitle}, with ${ingrSummary}, served in a beautiful round ceramic bowl, appetizing colorful presentation, 8k food photography`
-  );
-  return `https://image.pollinations.ai/prompt/${promptText}?width=600&height=600&nologo=true&model=flux`;
+  const t = (recipeTitle || "").toLowerCase();
+  if (t.includes("crevette") || t.includes("shrimp") || t.includes("poisson") || t.includes("saumon")) {
+    return "https://images.unsplash.com/photo-1559742811-822873691df8?auto=format&fit=crop&w=600&h=600&q=85";
+  }
+  if (t.includes("dinde") || t.includes("poulet") || t.includes("curry") || t.includes("kung pao")) {
+    return "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=600&h=600&q=85";
+  }
+  if (t.includes("pâtes") || t.includes("pasta") || t.includes("spaghetti") || t.includes("nouille")) {
+    return "https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=600&h=600&q=85";
+  }
+  return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&h=600&q=85";
 }
 
 /**
@@ -211,18 +219,62 @@ export function generateStudioStepImageUrl(
   stepTitle: string,
   stepDescription: string,
   imagePrompt?: string,
-  seedModifier: number = 0
+  stepIndex: number = 0
 ): string {
-  const cleanTitle = stepTitle.replace(/[^a-zA-Z0-9à-úÀ-Ú\s]/g, " ").trim();
-  const cleanPrompt = (imagePrompt || stepDescription || "")
-    .replace(/[^a-zA-Z0-9à-úÀ-Ú\s]/g, " ")
-    .slice(0, 100)
-    .trim();
+  const text = `${stepTitle} ${stepDescription} ${imagePrompt || ""}`.toLowerCase();
 
-  const promptText = encodeURIComponent(
-    `professional food photography cooking step: ${cleanTitle}, ${cleanPrompt}, realistic kitchen cooking action, gourmet culinary magazine quality`
-  );
-  return `https://image.pollinations.ai/prompt/${promptText}?width=600&height=600&nologo=true&model=flux&seed=${1000 + seedModifier * 333}`;
+  // 1. Chopping / Prep / Cutting board
+  if (
+    text.includes("coupe") ||
+    text.includes("émince") ||
+    text.includes("cisele") ||
+    text.includes("planche") ||
+    text.includes("légume") ||
+    text.includes("oignon") ||
+    text.includes("poivron") ||
+    stepIndex === 0
+  ) {
+    return "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&h=600&q=85";
+  }
+
+  // 2. Marinating / Meat prep / Bowl
+  if (
+    text.includes("marine") ||
+    text.includes("bol") ||
+    text.includes("viande") ||
+    text.includes("dinde") ||
+    text.includes("dés") ||
+    stepIndex === 1
+  ) {
+    return "https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=600&h=600&q=85";
+  }
+
+  // 3. Hot pan / Skillet / Searing / Wok / Stir-fry
+  if (
+    text.includes("poêle") ||
+    text.includes("casserole") ||
+    text.includes("wok") ||
+    text.includes("sauter") ||
+    text.includes("revenir") ||
+    text.includes("feu") ||
+    stepIndex === 2
+  ) {
+    return "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=600&h=600&q=85";
+  }
+
+  // 4. Simmering / Stew / Plating / Final Bowl
+  if (
+    text.includes("mijote") ||
+    text.includes("bouillon") ||
+    text.includes("sauce") ||
+    text.includes("dress") ||
+    text.includes("assiette") ||
+    text.includes("riz")
+  ) {
+    return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&h=600&q=85";
+  }
+
+  return "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=600&h=600&q=85";
 }
 
 /**
