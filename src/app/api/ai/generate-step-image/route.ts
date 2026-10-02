@@ -1,0 +1,110 @@
+import { NextRequest, NextResponse } from "next/server";
+
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
+  try {
+    const { prompt, stepNumber, recipeTitle } = await req.json();
+
+    if (!prompt) {
+      return NextResponse.json({ error: "Prompt requis" }, { status: 400 });
+    }
+
+    const openAiApiKey = process.env.OPENAI_API_KEY;
+    const geminiApiKey =
+      process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+
+    // 1. OpenAI DALL-E 3 Pure Generative AI
+    if (openAiApiKey) {
+      try {
+        const enhancedPrompt = `Gourmet culinary food photography, step ${stepNumber || 1} of ${recipeTitle || "cooking"}: ${prompt}, ultra realistic, 4k food magazine quality, appetizing, cinematic soft studio lighting`;
+        const res = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openAiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: "dall-e-3",
+            prompt: enhancedPrompt,
+            n: 1,
+            size: "1024x1024",
+            quality: "standard",
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const imageUrl = data?.data?.[0]?.url;
+          if (imageUrl) {
+            return NextResponse.json({
+              imageUrl,
+              provider: "OpenAI DALL-E 3 (ChatGPT)",
+            });
+          }
+        }
+      } catch (dallErr) {
+        console.warn("DALL-E 3 generation failed:", dallErr);
+      }
+    }
+
+    // 2. Google AI NanoBanana / Imagen Image Generation
+    if (geminiApiKey) {
+      const imageModels = [
+        "nano-banana-pro-preview",
+        "gemini-2.5-flash-image",
+        "gemini-3.1-flash-image",
+      ];
+
+      for (const model of imageModels) {
+        try {
+          const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+          const res = await fetch(geminiEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `Generate a 4K studio culinary food photograph of: ${prompt}`,
+                    },
+                  ],
+                },
+              ],
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const part = data?.candidates?.[0]?.content?.parts?.[0];
+            if (part?.inline_data?.data) {
+              const mime = part.inline_data.mime_type || "image/jpeg";
+              return NextResponse.json({
+                imageUrl: `data:${mime};base64,${part.inline_data.data}`,
+                provider: `Google ${model}`,
+              });
+            }
+          }
+        } catch (geminiImgErr) {
+          console.warn(`Gemini ${model} failed:`, geminiImgErr);
+        }
+      }
+    }
+
+    return NextResponse.json(
+      {
+        error:
+          "Pour activer la génération pure par IA (DALL-E 3 / NanoBanana), veuillez renseigner une clé OPENAI_API_KEY ou activer le quota NanoBanana.",
+      },
+      { status: 503 }
+    );
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message || "Erreur de génération" },
+      { status: 500 }
+    );
+  }
+}
