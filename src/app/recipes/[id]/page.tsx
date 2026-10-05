@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -21,6 +21,10 @@ import {
   ArrowRight,
   ChefHat,
   Flame,
+  Camera,
+  Image as ImageIcon,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { Recipe, IngredientItem, RecipeStep } from "@/features/recipes/types";
@@ -83,6 +87,13 @@ export default function RecipeDetailPage() {
   const [editSteps, setEditSteps] = useState<RecipeStep[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
   const [editTab, setEditTab] = useState<"general" | "ingredients" | "steps">("general");
+
+  // Image editing & AI regeneration state
+  const [isGeneratingMainImage, setIsGeneratingMainImage] = useState<boolean>(false);
+  const [generatingStepIdx, setGeneratingStepIdx] = useState<number | null>(null);
+  const mainPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const stepPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeStepUploadIdx, setActiveStepUploadIdx] = useState<number | null>(null);
 
   // Delete Confirmation Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
@@ -244,6 +255,97 @@ export default function RecipeDetailPage() {
       console.error("handleConfirmDelete error:", err);
       setIsDeleting(false);
     }
+  };
+
+  // Generate Main Recipe Image via AI
+  const handleGenerateMainImageAI = async () => {
+    if (!editTitle.trim()) return;
+    setIsGeneratingMainImage(true);
+    try {
+      const ingSummary = editIngredients
+        .filter((i) => i.name)
+        .slice(0, 5)
+        .map((i) => i.name)
+        .join(", ");
+
+      const res = await fetch("/api/ai/generate-recipe-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editSubtitle.trim(),
+          type: "main",
+          ingredientsSummary: ingSummary,
+        }),
+      });
+      const data = await res.json();
+      if (data.imageUrl) {
+        setEditImageUrl(data.imageUrl);
+      }
+    } catch (err) {
+      console.error("handleGenerateMainImageAI error:", err);
+    } finally {
+      setIsGeneratingMainImage(false);
+    }
+  };
+
+  // Generate Step Image via AI
+  const handleGenerateStepImageAI = async (stepIndex: number) => {
+    const step = editSteps[stepIndex];
+    if (!step) return;
+    setGeneratingStepIdx(stepIndex);
+    try {
+      const res = await fetch("/api/ai/generate-recipe-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle.trim() || recipe?.title || "Recette",
+          description: step.description || step.title || `Étape ${stepIndex + 1}`,
+          stepNumber: stepIndex + 1,
+          type: "step",
+        }),
+      });
+      const data = await res.json();
+      if (data.imageUrl) {
+        handleUpdateStep(stepIndex, "imageUrl", data.imageUrl);
+      }
+    } catch (err) {
+      console.error("handleGenerateStepImageAI error:", err);
+    } finally {
+      setGeneratingStepIdx(null);
+    }
+  };
+
+  // Upload/Take Main Photo
+  const handleMainFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setEditImageUrl(result);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  // Upload/Take Step Photo
+  const handleStepFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || activeStepUploadIdx === null) return;
+    const targetIdx = activeStepUploadIdx;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        handleUpdateStep(targetIdx, "imageUrl", result);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+    setActiveStepUploadIdx(null);
   };
 
   // Ingredient list editors
@@ -961,17 +1063,76 @@ export default function RecipeDetailPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-[#181A20] mb-1">
-                      URL de la photo
+                  {/* Main Recipe Photo Edit */}
+                  <div className="space-y-2 pt-1 border-t border-slate-100">
+                    <label className="block text-xs font-bold text-[#181A20]">
+                      Photo principale du plat
                     </label>
-                    <input
-                      type="text"
-                      value={editImageUrl}
-                      onChange={(e) => setEditImageUrl(e.target.value)}
-                      placeholder="https://..."
-                      className="w-full bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
-                    />
+                    <div className="flex flex-col sm:flex-row gap-3 items-start">
+                      <div className="relative w-full sm:w-36 h-28 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                        {editImageUrl ? (
+                          <img
+                            src={editImageUrl}
+                            alt="Aperçu du plat"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 p-2 text-center">
+                            <ImageIcon className="w-6 h-6 mb-1" />
+                            <span className="text-[10px]">Aucune photo</span>
+                          </div>
+                        )}
+                        {isGeneratingMainImage && (
+                          <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center text-white text-xs font-bold">
+                            <Loader2 className="w-5 h-5 animate-spin mb-1 text-[#5DB534]" />
+                            <span>Génération IA...</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 space-y-2 w-full">
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            ref={mainPhotoInputRef}
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={handleMainFileSelected}
+                            className="hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => mainPhotoInputRef.current?.click()}
+                            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-[#181A20] rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>Prendre / Uploader</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleGenerateMainImageAI}
+                            disabled={isGeneratingMainImage || !editTitle.trim()}
+                            className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-[#5DB534] border border-emerald-200/80 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            {isGeneratingMainImage ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3.5 h-3.5" />
+                            )}
+                            <span>Régénérer via IA</span>
+                          </button>
+                        </div>
+
+                        <input
+                          type="text"
+                          value={editImageUrl}
+                          onChange={(e) => setEditImageUrl(e.target.value)}
+                          placeholder="Ou collez une URL d'image (https://...)"
+                          className="w-full bg-slate-50 px-3 py-2 rounded-xl text-[11px] text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1059,9 +1220,18 @@ export default function RecipeDetailPage() {
               {/* SUB-TAB 3: STEPS */}
               {editTab === "steps" && (
                 <div className="space-y-3">
+                  <input
+                    ref={stepPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleStepFileSelected}
+                    className="hidden"
+                  />
+
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-500">
-                      Étapes de préparation
+                      Étapes de préparation ({editSteps.length})
                     </span>
                     <button
                       type="button"
@@ -1076,7 +1246,7 @@ export default function RecipeDetailPage() {
                   {editSteps.map((step, idx) => (
                     <div
                       key={idx}
-                      className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2"
+                      className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-3"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="w-6 h-6 rounded-lg bg-emerald-100 text-[#5DB534] font-extrabold text-xs flex items-center justify-center shrink-0">
@@ -1137,6 +1307,70 @@ export default function RecipeDetailPage() {
                           }
                           className="bg-white px-3 py-1.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
                         />
+                      </div>
+
+                      {/* Step Photo Controls (AI generate, Take/Upload Photo, Remove) */}
+                      <div className="pt-2 border-t border-slate-200/60">
+                        <div className="flex items-center gap-3">
+                          <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-white border border-slate-200 shrink-0">
+                            {step.imageUrl ? (
+                              <img
+                                src={step.imageUrl}
+                                alt={`Étape ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
+                                <ImageIcon className="w-4 h-4 text-slate-300" />
+                                <span className="text-[8px] text-slate-400 mt-0.5">Pas d'image</span>
+                              </div>
+                            )}
+                            {generatingStepIdx === idx && (
+                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white">
+                                <Loader2 className="w-4 h-4 animate-spin text-[#5DB534]" />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveStepUploadIdx(idx);
+                                stepPhotoInputRef.current?.click();
+                              }}
+                              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-[#181A20] rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <Camera className="w-3 h-3 text-emerald-700" />
+                              <span>Photo</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateStepImageAI(idx)}
+                              disabled={generatingStepIdx === idx}
+                              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-[#5DB534] border border-emerald-200/80 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              {generatingStepIdx === idx ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3 h-3" />
+                              )}
+                              <span>Régénérer IA</span>
+                            </button>
+
+                            {step.imageUrl && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateStep(idx, "imageUrl", undefined)}
+                                className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
+                                title="Supprimer la photo"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}
