@@ -13,12 +13,40 @@ import {
   Check,
   X,
   Sparkles,
+  Edit3,
+  Trash2,
+  Plus,
+  AlertTriangle,
+  Save,
+  ArrowRight,
+  ChefHat,
+  Flame,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { Recipe } from "@/features/recipes/types";
-import { getStoredRecipes, fetchRecipesFromDb, toggleFavoriteInDb } from "@/features/recipes/actions";
+import { Recipe, IngredientItem, RecipeStep } from "@/features/recipes/types";
+import {
+  getStoredRecipes,
+  fetchRecipesFromDb,
+  saveRecipeToDb,
+  deleteRecipeFromDb,
+  toggleFavoriteInDb,
+} from "@/features/recipes/actions";
 import { addOrUpdateMealPlan } from "@/features/calendar/actions";
 import { syncAndFetchShoppingList } from "@/features/groceries/actions";
+import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
+
+const CATEGORIES = [
+  "Main Dishes",
+  "Soups & Stews",
+  "Appetizers",
+  "Pastas",
+  "Desserts",
+  "Salads",
+  "Breakfast",
+  "Sides",
+];
+
+const DIFFICULTIES: Array<"Easy" | "Medium" | "Hard"> = ["Easy", "Medium", "Hard"];
 
 export default function RecipeDetailPage() {
   const params = useParams();
@@ -42,6 +70,24 @@ export default function RecipeDetailPage() {
   const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
   const [planSuccessToast, setPlanSuccessToast] = useState<string | null>(null);
 
+  // Edit Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [editTitle, setEditTitle] = useState<string>("");
+  const [editSubtitle, setEditSubtitle] = useState<string>("");
+  const [editCategory, setEditCategory] = useState<string>("Main Dishes");
+  const [editPrepTime, setEditPrepTime] = useState<number>(30);
+  const [editDifficulty, setEditDifficulty] = useState<"Easy" | "Medium" | "Hard">("Easy");
+  const [editServingsBase, setEditServingsBase] = useState<number>(2);
+  const [editImageUrl, setEditImageUrl] = useState<string>("");
+  const [editIngredients, setEditIngredients] = useState<IngredientItem[]>([]);
+  const [editSteps, setEditSteps] = useState<RecipeStep[]>([]);
+  const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
+  const [editTab, setEditTab] = useState<"general" | "ingredients" | "steps">("general");
+
+  // Delete Confirmation Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
   useEffect(() => {
     if (!user?.id || !recipeId) return;
 
@@ -55,7 +101,7 @@ export default function RecipeDetailPage() {
       setIsLoading(false);
     }
 
-    // Fetch from Supabase database to ensure freshness
+    // Fetch from Supabase database directly
     fetchRecipesFromDb(user.id).then((dbList) => {
       const dbFound = dbList.find((r) => r.id === recipeId);
       if (dbFound) {
@@ -122,7 +168,7 @@ export default function RecipeDetailPage() {
         user.id
       );
 
-      // Automatically synchronize shopping list with the new planned ingredients
+      // Automatically update shopping list in DB
       await syncAndFetchShoppingList(user.id);
 
       setIsPlanModalOpen(false);
@@ -133,6 +179,125 @@ export default function RecipeDetailPage() {
     } finally {
       setIsSubmittingPlan(false);
     }
+  };
+
+  // Open Edit Mode
+  const handleOpenEdit = () => {
+    if (!recipe) return;
+    setEditTitle(recipe.title || "");
+    setEditSubtitle(recipe.subtitle || "");
+    setEditCategory(recipe.category || "Main Dishes");
+    setEditPrepTime(recipe.prepTimeMinutes || 30);
+    setEditDifficulty(recipe.difficulty || "Easy");
+    setEditServingsBase(recipe.servingsBase || 2);
+    setEditImageUrl(recipe.imageUrl || "");
+    setEditIngredients(recipe.ingredients ? JSON.parse(JSON.stringify(recipe.ingredients)) : []);
+    setEditSteps(recipe.steps ? JSON.parse(JSON.stringify(recipe.steps)) : []);
+    setEditTab("general");
+    setIsEditModalOpen(true);
+  };
+
+  // Save Edit to DB
+  const handleSaveEdit = async () => {
+    if (!user?.id || !recipe || !editTitle.trim()) return;
+
+    setIsSavingEdit(true);
+    try {
+      const updated: Recipe = {
+        ...recipe,
+        title: editTitle.trim(),
+        subtitle: editSubtitle.trim() || undefined,
+        category: editCategory,
+        prepTimeMinutes: Number(editPrepTime) || 30,
+        difficulty: editDifficulty,
+        servingsBase: Number(editServingsBase) || 2,
+        imageUrl: editImageUrl.trim() || recipe.imageUrl,
+        ingredients: editIngredients.filter((i) => i.name && i.name.trim()),
+        steps: editSteps
+          .filter((s) => s.description && s.description.trim())
+          .map((s, idx) => ({ ...s, stepNumber: idx + 1 })),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await saveRecipeToDb(updated, user.id);
+      setRecipe(updated);
+      setIsEditModalOpen(false);
+      setPlanSuccessToast("Recette modifiée et enregistrée en base de données !");
+      setTimeout(() => setPlanSuccessToast(null), 3000);
+    } catch (err) {
+      console.error("handleSaveEdit error:", err);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Delete Recipe
+  const handleConfirmDelete = async () => {
+    if (!user?.id || !recipe) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteRecipeFromDb(recipe.id, user.id);
+      setIsDeleteModalOpen(false);
+      router.push("/");
+    } catch (err) {
+      console.error("handleConfirmDelete error:", err);
+      setIsDeleting(false);
+    }
+  };
+
+  // Ingredient list editors
+  const handleAddIngredient = () => {
+    setEditIngredients((prev) => [
+      ...prev,
+      {
+        id: `ing_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: "",
+        amount: 1,
+        unit: "pièce(s)",
+      },
+    ]);
+  };
+
+  const handleUpdateIngredient = (index: number, field: keyof IngredientItem, value: any) => {
+    setEditIngredients((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleRemoveIngredient = (index: number) => {
+    setEditIngredients((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Steps list editors
+  const handleAddStep = () => {
+    setEditSteps((prev) => [
+      ...prev,
+      {
+        stepNumber: prev.length + 1,
+        title: `Étape ${prev.length + 1}`,
+        description: "",
+        durationMinutes: 5,
+      },
+    ]);
+  };
+
+  const handleUpdateStep = (index: number, field: keyof RecipeStep, value: any) => {
+    setEditSteps((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleRemoveStep = (index: number) => {
+    setEditSteps((prev) =>
+      prev
+        .filter((_, i) => i !== index)
+        .map((s, idx) => ({ ...s, stepNumber: idx + 1 }))
+    );
   };
 
   return (
@@ -165,7 +330,7 @@ export default function RecipeDetailPage() {
         </div>
       )}
 
-      {/* Top Header: Back & Favorite */}
+      {/* Top Header: Back, Edit, Delete, Plan, Favorite */}
       <header className="px-6 pt-7 pb-2 flex items-center justify-between z-20">
         <button
           type="button"
@@ -177,6 +342,27 @@ export default function RecipeDetailPage() {
         </button>
 
         <div className="flex items-center gap-2">
+          {/* Edit Recipe Button */}
+          <button
+            type="button"
+            onClick={handleOpenEdit}
+            className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-slate-700 shadow-sm border border-slate-100 hover:text-[#5DB534] active:scale-95 transition-all cursor-pointer"
+            title="Modifier la recette"
+          >
+            <Edit3 className="w-4 h-4" />
+          </button>
+
+          {/* Delete Recipe Button */}
+          <button
+            type="button"
+            onClick={() => setIsDeleteModalOpen(true)}
+            className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-slate-700 hover:text-rose-500 shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+            title="Supprimer la recette"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+
+          {/* Plan button */}
           <button
             type="button"
             onClick={() => setIsPlanModalOpen(true)}
@@ -187,10 +373,11 @@ export default function RecipeDetailPage() {
             <span>Planifier</span>
           </button>
 
+          {/* Favorite button */}
           <button
             type="button"
             onClick={toggleFavorite}
-            className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+            className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
             title="Ajouter aux favoris"
           >
             <Heart
@@ -308,19 +495,21 @@ export default function RecipeDetailPage() {
           )}
         </div>
 
-        {/* Servings Multiplier Selector */}
+        {/* Servings Stepper (Only on Ingredients tab) */}
         {activeTab === "ingredients" && (
-          <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-full border border-slate-200/80 shadow-2xs">
+          <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-2xs">
             <button
               onClick={() => setServings((s) => Math.max(1, s - 1))}
-              className="w-5 h-5 flex items-center justify-center text-xs font-bold text-slate-500 hover:text-slate-900 active:scale-90 cursor-pointer"
+              className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-slate-900 font-bold text-xs active:scale-95"
             >
               -
             </button>
-            <span className="text-xs font-bold text-[#181A20]">{servings} pers</span>
+            <span className="text-xs font-bold text-[#181A20] min-w-[55px] text-center">
+              {servings} pers.
+            </span>
             <button
               onClick={() => setServings((s) => s + 1)}
-              className="w-5 h-5 flex items-center justify-center text-xs font-bold text-slate-500 hover:text-slate-900 active:scale-90 cursor-pointer"
+              className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-slate-900 font-bold text-xs active:scale-95"
             >
               +
             </button>
@@ -328,173 +517,166 @@ export default function RecipeDetailPage() {
         )}
       </div>
 
-      {/* Tab Content 1: Ingredients List */}
-      {activeTab === "ingredients" && (
-        <div className="px-6 mt-4 space-y-2.5">
-          {recipe.ingredients?.map((ing, idx) => {
-            const scaledAmount = ing.amount
-              ? Math.round(ing.amount * scaleFactor * 10) / 10
-              : null;
+      {/* Tab Content */}
+      <div className="px-6 mt-4 flex-1">
+        {/* TAB 1: INGREDIENTS */}
+        {activeTab === "ingredients" && (
+          <div className="space-y-2.5">
+            {recipe.ingredients && recipe.ingredients.length > 0 ? (
+              recipe.ingredients.map((ing, idx) => {
+                const scaledAmount =
+                  typeof ing.amount === "number"
+                    ? Math.round(ing.amount * scaleFactor * 100) / 100
+                    : ing.amount;
 
-            return (
-              <div
-                key={ing.id || idx}
-                className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between hover:shadow-xs transition-shadow"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
-                    <span className="text-lg">🥕</span>
+                return (
+                  <div
+                    key={ing.id || idx}
+                    className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 hover:border-slate-200 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-[#5DB534] shrink-0" />
+                      <span className="text-xs font-bold text-[#181A20] truncate">
+                        {ing.name}
+                      </span>
+                    </div>
+
+                    {(scaledAmount || ing.unit) && (
+                      <span className="text-xs font-bold text-[#5DB534] bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200/50 shrink-0">
+                        {scaledAmount ? `${scaledAmount} ` : ""}
+                        {ing.unit || ""}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <p className="text-xs text-slate-400 py-6 text-center">
+                Aucun ingrédient listé pour cette recette.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: STEPS */}
+        {activeTab === "steps" && (
+          <div className="space-y-3">
+            {recipe.steps && recipe.steps.length > 0 ? (
+              recipe.steps.map((step, idx) => (
+                <div
+                  key={step.stepNumber || idx}
+                  className="bg-white p-4 rounded-3xl border border-slate-100 shadow-2xs space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-extrabold text-[#5DB534] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-[10px]">
+                        {step.stepNumber || idx + 1}
+                      </span>
+                      <span>{step.title || `Étape ${idx + 1}`}</span>
+                    </span>
+
+                    {step.durationMinutes && (
+                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{step.durationMinutes} min</span>
+                      </span>
+                    )}
                   </div>
 
-                  <span className="text-xs sm:text-sm font-bold text-[#181A20]">
-                    {ing.name}
-                  </span>
+                  <p className="text-xs text-slate-700 leading-relaxed font-normal">
+                    {step.description}
+                  </p>
+
+                  {step.chefTip && (
+                    <div className="p-2.5 bg-amber-50/70 border border-amber-200/50 rounded-2xl text-[11px] text-amber-900 font-medium flex items-center gap-2">
+                      <span>💡</span>
+                      <span>{step.chefTip}</span>
+                    </div>
+                  )}
                 </div>
-
-                <span className="text-xs font-bold text-[#EA580C] bg-[#FFF7ED] px-3 py-1.5 rounded-xl border border-amber-100">
-                  {scaledAmount !== null ? `${scaledAmount} ${ing.unit}` : ing.unit || "au goût"}
-                </span>
-              </div>
-            );
-          })}
-
-          {recipe.utensils && recipe.utensils.length > 0 && (
-            <div className="mt-5 p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 mb-2">
-                <Utensils className="w-4 h-4" />
-                <span>Ustensiles recommandés</span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {recipe.utensils.map((u, i) => (
-                  <span
-                    key={i}
-                    className="text-[11px] font-medium bg-white px-2.5 py-1 rounded-lg text-emerald-900 border border-emerald-200/60"
-                  >
-                    {u}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tab Content 2: Steps Preview */}
-      {activeTab === "steps" && (
-        <div className="px-6 mt-4 space-y-3.5">
-          {recipe.steps?.map((step) => (
-            <div
-              key={step.stepNumber}
-              className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs space-y-3"
-            >
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-[#5DB534] text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  {step.stepNumber}
-                </span>
-                <h4 className="text-xs font-bold text-[#181A20]">{step.title}</h4>
-              </div>
-
-              {step.imageUrl && (
-                <div className="w-full h-36 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shadow-2xs">
-                  <img
-                    src={step.imageUrl}
-                    alt={step.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-
-              <p className="text-xs text-[#6B7280] leading-relaxed">
-                {step.description}
+              ))
+            ) : (
+              <p className="text-xs text-slate-400 py-6 text-center">
+                Aucune étape listée pour cette recette.
               </p>
+            )}
+          </div>
+        )}
 
-              {step.chefTip && (
-                <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200/60 text-[11px] font-medium text-amber-900">
-                  💡 <strong>Astuce :</strong> {step.chefTip}
-                </div>
-              )}
+        {/* TAB 3: NUTRITION */}
+        {activeTab === "nutrition" && recipe.nutrition && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs text-center">
+              <span className="text-xl font-extrabold text-[#181A20]">
+                {recipe.nutrition.caloriesKcal || "--"}
+              </span>
+              <span className="text-xs text-[#8E929E] block mt-0.5">Calories (kcal)</span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Tab Content 3: Nutrition */}
-      {activeTab === "nutrition" && recipe.nutrition && (
-        <div className="px-6 mt-4 space-y-3">
-          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-2xs">
-            <h4 className="text-xs font-bold text-[#181A20] mb-3">Valeurs nutritionnelles (par portion)</h4>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[#8E929E]">Énergie</span>
-                <p className="text-sm font-extrabold text-[#181A20] mt-0.5">{recipe.nutrition.caloriesKcal || 650} kcal</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[#8E929E]">Protéines</span>
-                <p className="text-sm font-extrabold text-[#181A20] mt-0.5">{recipe.nutrition.proteines || "26g"}</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[#8E929E]">Glucides</span>
-                <p className="text-sm font-extrabold text-[#181A20] mt-0.5">{recipe.nutrition.glucides || "80g"}</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-[#8E929E]">Lipides</span>
-                <p className="text-sm font-extrabold text-[#181A20] mt-0.5">{recipe.nutrition.lipides || "30g"}</p>
-              </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs text-center">
+              <span className="text-xl font-extrabold text-[#181A20]">
+                {recipe.nutrition.proteines || "--"}
+              </span>
+              <span className="text-xs text-[#8E929E] block mt-0.5">Protéines</span>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs text-center">
+              <span className="text-xl font-extrabold text-[#181A20]">
+                {recipe.nutrition.glucides || "--"}
+              </span>
+              <span className="text-xs text-[#8E929E] block mt-0.5">Glucides</span>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs text-center">
+              <span className="text-xl font-extrabold text-[#181A20]">
+                {recipe.nutrition.lipides || "--"}
+              </span>
+              <span className="text-xs text-[#8E929E] block mt-0.5">Lipides</span>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Sticky Bottom Actions Bar */}
-      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 w-[92%] max-w-[420px] z-40 flex items-center gap-2.5">
-        <button
-          type="button"
-          onClick={() => setIsPlanModalOpen(true)}
-          className="flex-1 flex items-center justify-center gap-2 py-4 px-4 bg-white/95 backdrop-blur-md text-[#181A20] border border-slate-200/90 text-xs sm:text-sm font-extrabold rounded-full shadow-[0_8px_20px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all hover:bg-slate-50 cursor-pointer"
-        >
-          <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
-          <span>Planifier cette recette</span>
-        </button>
-
-        <Link
-          href={`/recipes/${recipe.id}/cook`}
-          className="flex-1 flex items-center justify-center py-4 px-4 bg-gradient-to-r from-[#5DB534] to-[#4FA12A] text-white text-xs sm:text-sm font-extrabold rounded-full shadow-[0_8px_24px_rgba(93,181,52,0.45)] active:scale-[0.98] transition-all hover:brightness-105 tracking-wide cursor-pointer text-center"
-        >
-          Cuisiner
-        </Link>
+        )}
       </div>
 
-      {/* Planification Modal Sheet */}
-      {isPlanModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4">
-          <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 shadow-2xl animate-in slide-in-from-bottom-5 duration-200 max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#5DB534] flex items-center justify-center">
-                  <CalendarIcon className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-[#181A20]">
-                    Planifier cette recette
-                  </h3>
-                  <p className="text-[11px] text-[#8E929E]">
-                    Ajoute au calendrier & à la liste de courses
-                  </p>
-                </div>
-              </div>
+      {/* Floating Bottom Cook Action Bar */}
+      <div className="fixed bottom-5 left-0 right-0 z-30 px-6 flex justify-center pointer-events-none">
+        <button
+          type="button"
+          onClick={() => router.push(`/recipes/${recipe.id}/cook`)}
+          className="w-full max-w-md py-4 px-6 rounded-full bg-[#181A20] hover:bg-black text-white font-extrabold text-sm shadow-[0_12px_28px_rgba(0,0,0,0.25)] flex items-center justify-between active:scale-98 transition-all pointer-events-auto cursor-pointer group"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[#5DB534]">
+              <Utensils className="w-4 h-4" />
+            </div>
+            <span>Lancer le mode cuisine</span>
+          </div>
+          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
+            <ArrowRight className="w-4 h-4 text-[#5DB534]" />
+          </div>
+        </button>
+      </div>
 
+      {/* MODAL 1: Plan Meal Modal */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+          <div className="w-full max-w-md bg-white border border-slate-100 rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom-6 text-[#181A20]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-extrabold text-[#181A20]">
+                  Planifier cette recette
+                </h3>
+                <span className="text-xs text-[#5DB534] font-semibold truncate block max-w-[280px]">
+                  {recipe.title}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsPlanModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center cursor-pointer"
+                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-900 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleConfirmPlan} className="mt-5 space-y-4">
-              {/* Date Selection */}
+            <form onSubmit={handleConfirmPlan} className="mt-4 space-y-4">
+              {/* Quick Date Selectors */}
               <div>
                 <label className="block text-xs font-bold text-[#181A20] mb-2">
                   Date du repas
@@ -619,6 +801,428 @@ export default function RecipeDetailPage() {
                 )}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Full Edit Recipe Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+          <div className="w-full max-w-lg bg-white border border-slate-100 rounded-t-[32px] sm:rounded-[32px] p-6 shadow-2xl flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-6 text-[#181A20]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#5DB534] flex items-center justify-center">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-extrabold text-[#181A20]">
+                  Modifier la recette
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-900 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Edit Sub-tabs (General / Ingredients / Steps) */}
+            <div className="flex gap-2 my-3 bg-slate-50 p-1.5 rounded-2xl border border-slate-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setEditTab("general")}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  editTab === "general"
+                    ? "bg-white text-[#181A20] shadow-xs border border-slate-200/60"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                Général
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditTab("ingredients")}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  editTab === "ingredients"
+                    ? "bg-white text-[#181A20] shadow-xs border border-slate-200/60"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                Ingrédients ({editIngredients.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditTab("steps")}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  editTab === "steps"
+                    ? "bg-white text-[#181A20] shadow-xs border border-slate-200/60"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                Étapes ({editSteps.length})
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 py-2">
+              {/* SUB-TAB 1: GENERAL INFO */}
+              {editTab === "general" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-[#181A20] mb-1">
+                      Titre de la recette *
+                    </label>
+                    <input
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      placeholder="Ex: Saumon rôti au sésame"
+                      className="w-full bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[#181A20] mb-1">
+                      Description / Sous-titre
+                    </label>
+                    <input
+                      type="text"
+                      value={editSubtitle}
+                      onChange={(e) => setEditSubtitle(e.target.value)}
+                      placeholder="Ex: Servi avec du riz jasmin et des légumes sautés"
+                      className="w-full bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-[#181A20] mb-1">
+                        Catégorie
+                      </label>
+                      <select
+                        value={editCategory}
+                        onChange={(e) => setEditCategory(e.target.value)}
+                        className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30 cursor-pointer"
+                      >
+                        {CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-[#181A20] mb-1">
+                        Difficulté
+                      </label>
+                      <select
+                        value={editDifficulty}
+                        onChange={(e) => setEditDifficulty(e.target.value as any)}
+                        className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30 cursor-pointer"
+                      >
+                        {DIFFICULTIES.map((diff) => (
+                          <option key={diff} value={diff}>
+                            {diff}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-[#181A20] mb-1">
+                        Temps de préparation (min)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={editPrepTime}
+                        onChange={(e) => setEditPrepTime(Number(e.target.value))}
+                        className="w-full bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-[#181A20] mb-1">
+                        Portions de base
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={editServingsBase}
+                        onChange={(e) => setEditServingsBase(Number(e.target.value))}
+                        className="w-full bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[#181A20] mb-1">
+                      URL de la photo
+                    </label>
+                    <input
+                      type="text"
+                      value={editImageUrl}
+                      onChange={(e) => setEditImageUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* SUB-TAB 2: INGREDIENTS WITH AUTOCOMPLETE */}
+              {editTab === "ingredients" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500">
+                      Liste des ingrédients
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleAddIngredient}
+                      className="px-3 py-1 bg-emerald-50 text-[#5DB534] border border-emerald-200/80 rounded-full text-xs font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Ajouter</span>
+                    </button>
+                  </div>
+
+                  {editIngredients.map((ing, idx) => (
+                    <div
+                      key={ing.id || idx}
+                      className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        {/* Ingredient Name with Autocomplete */}
+                        <div className="flex-1 min-w-0">
+                          <IngredientAutocomplete
+                            value={ing.name}
+                            onChange={(nameVal) =>
+                              handleUpdateIngredient(idx, "name", nameVal)
+                            }
+                            placeholder="Ex: Carottes, Crème fraîche..."
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveIngredient(idx)}
+                          className="p-2 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer shrink-0"
+                          title="Supprimer cet ingrédient"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="Quantité (ex: 200)"
+                          value={ing.amount !== null && ing.amount !== undefined ? ing.amount : ""}
+                          onChange={(e) =>
+                            handleUpdateIngredient(
+                              idx,
+                              "amount",
+                              e.target.value ? parseFloat(e.target.value) : null
+                            )
+                          }
+                          className="bg-white px-3 py-2 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Unité (ex: g, ml, pièce)"
+                          value={ing.unit || ""}
+                          onChange={(e) =>
+                            handleUpdateIngredient(idx, "unit", e.target.value)
+                          }
+                          className="bg-white px-3 py-2 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  {editIngredients.length === 0 && (
+                    <div className="py-6 text-center text-slate-400 text-xs">
+                      Aucun ingrédient. Cliquez sur "+ Ajouter" pour en créer un.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SUB-TAB 3: STEPS */}
+              {editTab === "steps" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500">
+                      Étapes de préparation
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleAddStep}
+                      className="px-3 py-1 bg-emerald-50 text-[#5DB534] border border-emerald-200/80 rounded-full text-xs font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Ajouter</span>
+                    </button>
+                  </div>
+
+                  {editSteps.map((step, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="w-6 h-6 rounded-lg bg-emerald-100 text-[#5DB534] font-extrabold text-xs flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+
+                        <input
+                          type="text"
+                          placeholder="Titre de l'étape"
+                          value={step.title || ""}
+                          onChange={(e) =>
+                            handleUpdateStep(idx, "title", e.target.value)
+                          }
+                          className="flex-1 bg-white px-3 py-2 rounded-xl text-xs font-bold text-[#181A20] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStep(idx)}
+                          className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer shrink-0"
+                          title="Supprimer cette étape"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <textarea
+                        rows={3}
+                        placeholder="Instructions détaillées de l'étape..."
+                        value={step.description || ""}
+                        onChange={(e) =>
+                          handleUpdateStep(idx, "description", e.target.value)
+                        }
+                        className="w-full bg-white px-3 py-2 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30 resize-none"
+                      />
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          placeholder="Durée (min)"
+                          value={step.durationMinutes || ""}
+                          onChange={(e) =>
+                            handleUpdateStep(
+                              idx,
+                              "durationMinutes",
+                              e.target.value ? parseInt(e.target.value, 10) : undefined
+                            )
+                          }
+                          className="bg-white px-3 py-1.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                        />
+
+                        <input
+                          type="text"
+                          placeholder="Astuce du chef (optionnel)"
+                          value={step.chefTip || ""}
+                          onChange={(e) =>
+                            handleUpdateStep(idx, "chefTip", e.target.value)
+                          }
+                          className="bg-white px-3 py-1.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  {editSteps.length === 0 && (
+                    <div className="py-6 text-center text-slate-400 text-xs">
+                      Aucune étape. Cliquez sur "+ Ajouter" pour en créer une.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-2xl transition-colors cursor-pointer"
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit || !editTitle.trim()}
+                className="flex-1 py-3 bg-[#5DB534] hover:bg-[#4FA12A] disabled:opacity-50 text-white font-extrabold text-xs rounded-2xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSavingEdit ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Enregistrer</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-sm bg-white border border-slate-100 rounded-[32px] p-6 shadow-2xl space-y-4 animate-in zoom-in-95 text-[#181A20]">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-base font-extrabold text-[#181A20]">
+                Supprimer cette recette ?
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Êtes-vous sûr de vouloir supprimer définitivement <strong>« {recipe.title} »</strong> de votre carnet et de la base de données ?
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={isDeleting}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-2xl transition-colors cursor-pointer"
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-extrabold text-xs rounded-2xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                {isDeleting ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Supprimer</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

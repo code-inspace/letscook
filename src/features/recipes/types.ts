@@ -7,6 +7,8 @@ export interface Ingredient {
   category?: string;
 }
 
+export type IngredientItem = Ingredient;
+
 export interface RecipeStep {
   stepNumber: number;
   title: string;

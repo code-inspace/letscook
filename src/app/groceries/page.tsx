@@ -27,6 +27,7 @@ import {
   formatShoppingListForExport,
 } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
 
 const CATEGORY_ORDER = [
   "Fruits & Légumes",
@@ -444,20 +445,20 @@ export default function GroceriesPage() {
           onSubmit={handleAddItem}
           className="bg-white p-3 rounded-2xl border border-slate-100 shadow-xs flex items-center gap-2"
         >
-          <input
-            type="text"
-            placeholder="Ajouter un article (ex: Lait, Pain...)"
-            value={newItemName}
-            onChange={(e) => setNewItemName(e.target.value)}
-            className="flex-1 bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] placeholder-slate-400 border border-slate-200/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
-          />
+          <div className="flex-1 min-w-0">
+            <IngredientAutocomplete
+              value={newItemName}
+              onChange={(val) => setNewItemName(val)}
+              placeholder="Ajouter un article (ex: Lait, Pain...)"
+            />
+          </div>
 
           <input
             type="text"
             placeholder="Qté"
             value={newItemAmount}
             onChange={(e) => setNewItemAmount(e.target.value)}
-            className="w-14 bg-slate-50 px-2 py-2.5 rounded-xl text-xs text-center text-[#181A20] placeholder-slate-400 border border-slate-200/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+            className="w-14 bg-slate-50 px-2 py-2.5 rounded-xl text-xs text-center text-[#181A20] placeholder-slate-400 border border-slate-200/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30 shrink-0"
           />
 
           <button
