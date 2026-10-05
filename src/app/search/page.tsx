@@ -55,9 +55,15 @@ function SearchContent() {
           <ChevronLeft className="w-5 h-5" />
         </button>
 
-        <h1 className="text-base font-extrabold text-[#181A20]">
-          Recherche de recettes
-        </h1>
+        <div className="text-center">
+          <h1 className="text-base font-extrabold text-[#181A20] flex items-center justify-center gap-1.5">
+            <Search className="w-4 h-4 text-[#5DB534]" />
+            <span>Recherche</span>
+          </h1>
+          <span className="text-[10px] text-[#8E929E] font-medium">
+            Par nom ou ingrédient
+          </span>
+        </div>
 
         <div className="w-10" />
       </header>

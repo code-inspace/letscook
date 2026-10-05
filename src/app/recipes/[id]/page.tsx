@@ -433,14 +433,14 @@ export default function RecipeDetailPage() {
       )}
 
       {/* Top Header: Back, Edit, Delete, Plan, Favorite */}
-      <header className="px-6 pt-7 pb-2 flex items-center justify-between z-20">
+      <header className="px-5 pt-7 pb-3.5 flex items-center justify-between z-20">
         <button
           type="button"
           onClick={() => router.back()}
-          className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+          className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
           title="Retour"
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ChevronLeft className="w-5 h-5" />
         </button>
 
         <div className="flex items-center gap-2">
