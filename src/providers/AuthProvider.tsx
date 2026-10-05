@@ -5,10 +5,13 @@ import { UserSession } from "@/features/auth/types";
 import { getStoredUserSession, setStoredUserSession } from "@/features/auth/actions";
 import { createClient } from "@/utils/supabase/client";
 
+import { syncAllLocalDataToSupabase } from "@/features/sync/syncService";
+
 interface AuthContextType {
   user: UserSession | null;
   isLoading: boolean;
   setUser: (u: UserSession | null) => void;
+  syncData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -16,6 +19,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUserState] = useState<UserSession | null>(() => getStoredUserSession());
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const syncData = async () => {
+    if (user?.id) {
+      await syncAllLocalDataToSupabase(user.id);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -31,6 +40,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
           setUserState(u);
           setStoredUserSession(u);
+          // Run background cloud sync
+          syncAllLocalDataToSupabase(session.user.id).catch(() => {});
         }
         setIsLoading(false);
       }).catch(() => {
@@ -44,10 +55,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const setUser = (u: UserSession | null) => {
     setUserState(u);
     setStoredUserSession(u);
+    if (u?.id) {
+      syncAllLocalDataToSupabase(u.id).catch(() => {});
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, setUser }}>
+    <AuthContext.Provider value={{ user, isLoading, setUser, syncData }}>
       {children}
     </AuthContext.Provider>
   );

@@ -43,10 +43,13 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed sm:absolute bottom-5 left-0 right-0 z-40 flex items-center justify-around px-4 pointer-events-none"
+      className="fixed sm:absolute bottom-0 left-0 right-0 z-40 pointer-events-none flex flex-col justify-end"
       aria-label="Navigation principale"
     >
-      <div className="w-full flex items-center justify-around pointer-events-auto max-w-[360px] mx-auto">
+      {/* Background with top transparent-to-white gradient */}
+      <div className="absolute inset-0 -top-8 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none" />
+
+      <div className="relative z-10 w-full flex items-center justify-around pointer-events-auto max-w-[360px] mx-auto px-4 pb-5 pt-2">
         {navItems.map((item) => {
           const Icon = item.icon;
 
@@ -80,3 +83,4 @@ export function BottomNav() {
     </nav>
   );
 }
+

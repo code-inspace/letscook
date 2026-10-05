@@ -9,12 +9,10 @@ import {
   Trash2,
   Share2,
   Copy,
-  Sparkles,
   ShoppingBag,
-  ExternalLink,
   Calendar,
-  AlertCircle,
-  Apple,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { ShoppingItem, RecipeContribution } from "@/features/groceries/types";
@@ -52,9 +50,14 @@ export default function GroceriesPage() {
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [exportNotice, setExportNotice] = useState<string>("");
 
-  // Recipe Filter State
-  const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
-  const [hasInitializedFilter, setHasInitializedFilter] = useState<boolean>(false);
+  // Recipe Filter State: we track DESELECTED recipe IDs (empty set = all recipes active)
+  const [deselectedRecipeIds, setDeselectedRecipeIds] = useState<Set<string>>(new Set());
+
+  // Expandable state for each department category (stores category names that are collapsed)
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+
+  // Expandable Accordion for purchased items
+  const [isPurchasedExpanded, setIsPurchasedExpanded] = useState<boolean>(true);
 
   const loadGroceries = useCallback(async () => {
     if (!user?.id) {
@@ -84,7 +87,9 @@ export default function GroceriesPage() {
     loadGroceries();
 
     const handleUpdate = () => {
-      if (user?.id) setItems(getStoredShoppingItems(user.id));
+      if (user?.id) {
+        setItems(getStoredShoppingItems(user.id));
+      }
     };
 
     window.addEventListener("letscook:groceries-updated", handleUpdate);
@@ -120,16 +125,8 @@ export default function GroceriesPage() {
     return Array.from(map.values());
   }, [items]);
 
-  // Initialize all contributing recipes as selected by default
-  useEffect(() => {
-    if (contributingRecipes.length > 0 && !hasInitializedFilter) {
-      setSelectedRecipeIds(new Set(contributingRecipes.map((r) => r.id)));
-      setHasInitializedFilter(true);
-    }
-  }, [contributingRecipes, hasInitializedFilter]);
-
   const toggleRecipeFilter = (recipeId: string) => {
-    setSelectedRecipeIds((prev) => {
+    setDeselectedRecipeIds((prev) => {
       const next = new Set(prev);
       if (next.has(recipeId)) {
         next.delete(recipeId);
@@ -140,12 +137,36 @@ export default function GroceriesPage() {
     });
   };
 
+  const handleToggleAllRecipes = () => {
+    if (deselectedRecipeIds.size === contributingRecipes.length) {
+      setDeselectedRecipeIds(new Set()); // Tout réafficher
+    } else {
+      setDeselectedRecipeIds(new Set(contributingRecipes.map((r) => r.id))); // Tout masquer
+    }
+  };
+
+  const toggleCategoryCollapse = (categoryName: string) => {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryName)) {
+        next.delete(categoryName);
+      } else {
+        next.add(categoryName);
+      }
+      return next;
+    });
+  };
+
+  // Immediate toggle of checked status
   const handleToggle = async (item: ShoppingItem) => {
     if (!user?.id) return;
     const newChecked = !item.checked;
+
+    // Optimistic UI update
     setItems((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, checked: newChecked } : i))
     );
+
     await toggleShoppingItemInDb(item.id, newChecked, user.id);
   };
 
@@ -187,8 +208,8 @@ export default function GroceriesPage() {
 
         // Auto item with multiple recipe sources
         if (item.recipeSources && item.recipeSources.length > 0) {
-          const activeSources = item.recipeSources.filter((s) =>
-            selectedRecipeIds.has(s.recipeId)
+          const activeSources = item.recipeSources.filter(
+            (s) => !deselectedRecipeIds.has(s.recipeId)
           );
 
           if (activeSources.length === 0) return null;
@@ -211,14 +232,14 @@ export default function GroceriesPage() {
         }
 
         // Single recipe item
-        if (item.recipeId && !selectedRecipeIds.has(item.recipeId)) {
+        if (item.recipeId && deselectedRecipeIds.has(item.recipeId)) {
           return null;
         }
 
         return item;
       })
       .filter((item): item is ShoppingItem => item !== null);
-  }, [items, selectedRecipeIds]);
+  }, [items, deselectedRecipeIds]);
 
   // Export to Apple Reminders (Rappels iOS) / Share Sheet
   const handleExportToAppleReminders = async () => {
@@ -256,9 +277,14 @@ export default function GroceriesPage() {
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const checkedCount = displayItems.filter((i) => i.checked).length;
-  const uncheckedItems = displayItems.filter((i) => !i.checked);
-  const checkedItems = displayItems.filter((i) => i.checked);
+  const uncheckedItems = useMemo(
+    () => displayItems.filter((i) => !i.checked),
+    [displayItems]
+  );
+  const checkedItems = useMemo(
+    () => displayItems.filter((i) => i.checked),
+    [displayItems]
+  );
 
   // Group unchecked items by department category
   const groupedUnchecked = useMemo(() => {
@@ -286,6 +312,8 @@ export default function GroceriesPage() {
     }));
   }, [uncheckedItems]);
 
+  const activeRecipesCount = contributingRecipes.length - deselectedRecipeIds.size;
+
   return (
     <div className="min-h-screen bg-[#F8F9FB] flex flex-col pb-32">
       {/* Top Header */}
@@ -309,7 +337,15 @@ export default function GroceriesPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleExportToAppleReminders}
+            className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-slate-700 shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+            title="Partager / Exporter la liste"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={handleCopyText}
@@ -322,31 +358,6 @@ export default function GroceriesPage() {
       </header>
 
       <div className="max-w-xl w-full mx-auto px-5 pt-4 space-y-4">
-        {/* iOS Reminders Export Banner */}
-        <div className="bg-gradient-to-r from-zinc-900 to-zinc-800 text-white p-4 rounded-3xl shadow-md border border-zinc-700/60 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center text-white shrink-0">
-              <Share2 className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div>
-              <h3 className="text-xs font-bold flex items-center gap-1.5">
-                <span>Exporter vers Rappels iOS</span>
-              </h3>
-              <p className="text-[10px] text-zinc-300 mt-0.5">
-                Ajoutez la liste en 1 clic dans vos Rappels Apple
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleExportToAppleReminders}
-            className="px-3.5 py-2 bg-[#5DB534] hover:bg-[#4FA12A] text-white font-extrabold text-[11px] rounded-xl shadow-sm active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-          >
-            <span>{isCopied ? "Copié !" : "Exporter"}</span>
-          </button>
-        </div>
-
         {exportNotice && (
           <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-2xl animate-in fade-in text-center">
             {exportNotice}
@@ -358,28 +369,22 @@ export default function GroceriesPage() {
           <div className="bg-white p-3.5 rounded-3xl border border-slate-100 shadow-2xs space-y-2">
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-bold text-slate-500">
-                Recettes prévues ({selectedRecipeIds.size}/{contributingRecipes.length})
+                Recettes prévues ({activeRecipesCount}/{contributingRecipes.length})
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  if (selectedRecipeIds.size === contributingRecipes.length) {
-                    setSelectedRecipeIds(new Set());
-                  } else {
-                    setSelectedRecipeIds(new Set(contributingRecipes.map((r) => r.id)));
-                  }
-                }}
+                onClick={handleToggleAllRecipes}
                 className="text-[10px] font-bold text-[#5DB534] hover:underline cursor-pointer"
               >
-                {selectedRecipeIds.size === contributingRecipes.length
-                  ? "Tout masquer"
-                  : "Tout afficher"}
+                {deselectedRecipeIds.size === contributingRecipes.length
+                  ? "Tout afficher"
+                  : "Tout masquer"}
               </button>
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
               {contributingRecipes.map((rec) => {
-                const isSelected = selectedRecipeIds.has(rec.id);
+                const isSelected = !deselectedRecipeIds.has(rec.id);
                 return (
                   <button
                     key={rec.id}
@@ -449,14 +454,14 @@ export default function GroceriesPage() {
           <span className="font-semibold text-[#181A20]">
             {uncheckedItems.length} article(s) à acheter
           </span>
-          {checkedCount > 0 && (
+          {checkedItems.length > 0 && (
             <button
               type="button"
               onClick={handleClearCompleted}
               className="text-rose-500 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Effacer cochés ({checkedCount})</span>
+              <span>Effacer cochés ({checkedItems.length})</span>
             </button>
           )}
         </div>
@@ -477,7 +482,7 @@ export default function GroceriesPage() {
               Aucun ingrédient à acheter
             </h3>
             <p className="text-xs text-[#8E929E] mt-1 max-w-xs leading-relaxed">
-              {contributingRecipes.length > 0 && selectedRecipeIds.size === 0
+              {contributingRecipes.length > 0 && deselectedRecipeIds.size === contributingRecipes.length
                 ? "Toutes les recettes sont actuellement désélectionnées. Cliquez sur les miniatures en haut pour les réafficher !"
                 : "Planifiez des recettes dans votre Calendrier pour y ajouter automatiquement les ingrédients mutualisés !"}
             </p>
@@ -492,151 +497,279 @@ export default function GroceriesPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Unchecked Items Grouped by Category */}
-            {groupedUnchecked.map((group) => (
-              <div key={group.category} className="space-y-2">
-                {/* Department Header */}
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{group.icon}</span>
-                    <h3 className="text-xs font-bold text-[#181A20] tracking-wide">
-                      {group.category}
-                    </h3>
-                  </div>
-                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                    {group.items.length}
-                  </span>
+            {/* 1. All Items Checked Congratulation Banner */}
+            {uncheckedItems.length === 0 && checkedItems.length > 0 && (
+              <div className="p-4 bg-emerald-50/80 border border-emerald-200/80 rounded-3xl text-center space-y-1 animate-in fade-in">
+                <div className="inline-flex items-center justify-center w-8 h-8 bg-emerald-500 text-white rounded-full mb-1">
+                  <Check className="w-5 h-5 stroke-[3]" />
                 </div>
-
-                {/* Items in this category */}
-                <div className="space-y-2">
-                  {group.items.map((item) => {
-                    const activeSources: RecipeContribution[] =
-                      item.recipeSources && item.recipeSources.length > 0
-                        ? item.recipeSources
-                        : item.recipeId
-                        ? [
-                            {
-                              recipeId: item.recipeId,
-                              recipeTitle: item.recipeTitle || "Recette",
-                              recipeImageUrl: item.recipeImageUrl,
-                            },
-                          ]
-                        : [];
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all"
-                      >
-                        <div
-                          onClick={() => handleToggle(item)}
-                          className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
-                        >
-                          {/* Checkbox */}
-                          <div className="w-5 h-5 rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0" />
-
-                          <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-xs font-bold text-[#181A20] truncate">
-                              {item.name}
-                            </span>
-
-                            {/* Mutualized Source Recipe Badges */}
-                            {activeSources.length > 0 && (
-                              <span className="text-[10px] text-[#5DB534] font-medium flex items-center gap-1 mt-0.5 truncate">
-                                <span>🍽️</span>
-                                <span className="truncate max-w-[200px]">
-                                  {activeSources.map((s) => s.recipeTitle).join(" + ")}
-                                </span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {/* Recipe Miniatures Avatars */}
-                          {activeSources.length > 0 && (
-                            <div className="flex items-center -space-x-2 shrink-0">
-                              {activeSources.map((src, idx) => (
-                                <div
-                                  key={idx}
-                                  className="w-6 h-6 rounded-full overflow-hidden border-2 border-white shadow-2xs bg-slate-100 shrink-0"
-                                  title={src.recipeTitle}
-                                >
-                                  {src.recipeImageUrl ? (
-                                    <img
-                                      src={src.recipeImageUrl}
-                                      alt={src.recipeTitle}
-                                      className="w-full h-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="w-full h-full bg-emerald-100 flex items-center justify-center text-[9px]">
-                                      🍽️
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Amount Pill */}
-                          {(item.amount || item.unit) && (
-                            <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
-                              {item.amount ? `${item.amount} ` : ""}
-                              {item.unit || ""}
-                            </span>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(item)}
-                            className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
-                            title="Supprimer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <h4 className="text-xs font-extrabold text-emerald-900">
+                  Tous les articles ont été achetés !
+                </h4>
+                <p className="text-[11px] text-emerald-700">
+                  Retrouvez vos articles cochés ci-dessous dans « Courses achetées ».
+                </p>
               </div>
-            ))}
+            )}
 
-            {/* Checked Items */}
-            {checkedItems.length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-slate-200/60">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block px-1">
-                  Déjà achetés ({checkedItems.length})
-                </span>
+            {/* 2. Unchecked Items Grouped by Expandable Category */}
+            {groupedUnchecked.map((group) => {
+              const isCollapsed = collapsedCategories.has(group.category);
 
-                {checkedItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="bg-slate-50/70 p-3 rounded-2xl border border-slate-100 flex items-center justify-between gap-3 opacity-60"
+              return (
+                <div key={group.category} className="space-y-2">
+                  {/* Department Expandable Header Button */}
+                  <button
+                    type="button"
+                    onClick={() => toggleCategoryCollapse(group.category)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-2xl bg-white hover:bg-slate-50 border border-slate-100 shadow-2xs transition-all cursor-pointer group text-left"
                   >
-                    <div
-                      onClick={() => handleToggle(item)}
-                      className="flex items-center gap-3 flex-1 cursor-pointer"
-                    >
-                      <div className="w-5 h-5 rounded-lg bg-[#5DB534] text-white flex items-center justify-center shrink-0">
-                        <Check className="w-3.5 h-3.5" strokeWidth={3} />
-                      </div>
-
-                      <span className="text-xs font-semibold text-slate-500 line-through">
-                        {item.name}
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{group.icon}</span>
+                      <h3 className="text-xs font-bold text-[#181A20] tracking-wide">
+                        {group.category}
+                      </h3>
+                      <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                        {group.items.length}
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item)}
-                      className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1 text-slate-400 group-hover:text-slate-600 transition-colors">
+                      <span className="text-[10px] font-medium">
+                        {isCollapsed ? "Déplier" : "Replier"}
+                      </span>
+                      {isCollapsed ? (
+                        <ChevronDown className="w-4 h-4 text-slate-500" />
+                      ) : (
+                        <ChevronUp className="w-4 h-4 text-slate-500" />
+                      )}
+                    </div>
+                  </button>
+
+                  {/* Items in this category */}
+                  {!isCollapsed && (
+                    <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                      {group.items.map((item) => {
+                        const activeSources: RecipeContribution[] =
+                          item.recipeSources && item.recipeSources.length > 0
+                            ? item.recipeSources
+                            : item.recipeId
+                            ? [
+                                {
+                                  recipeId: item.recipeId,
+                                  recipeTitle: item.recipeTitle || "Recette",
+                                  recipeImageUrl: item.recipeImageUrl,
+                                },
+                              ]
+                            : [];
+
+                        return (
+                          <div
+                            key={item.id}
+                            className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all"
+                          >
+                            <div
+                              onClick={() => handleToggle(item)}
+                              className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
+                            >
+                              {/* Checkbox */}
+                              <div className="w-5 h-5 rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0" />
+
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <span className="text-xs font-bold text-[#181A20] truncate">
+                                  {item.name}
+                                </span>
+
+                                {/* Mutualized Source Recipe Badges */}
+                                {activeSources.length > 0 && (
+                                  <span className="text-[10px] text-[#5DB534] font-medium flex items-center gap-1 mt-0.5 truncate">
+                                    <span>🍽️</span>
+                                    <span className="truncate max-w-[200px]">
+                                      {activeSources.map((s) => s.recipeTitle).join(" + ")}
+                                    </span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/* Recipe Miniatures Avatars */}
+                              {activeSources.length > 0 && (
+                                <div className="flex items-center -space-x-2 shrink-0">
+                                  {activeSources.map((src, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="w-6 h-6 rounded-full overflow-hidden border-2 border-white shadow-2xs bg-slate-100 shrink-0"
+                                      title={src.recipeTitle}
+                                    >
+                                      {src.recipeImageUrl ? (
+                                        <img
+                                          src={src.recipeImageUrl}
+                                          alt={src.recipeTitle}
+                                          className="w-full h-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-full bg-emerald-100 flex items-center justify-center text-[9px]">
+                                          🍽️
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Amount Pill */}
+                              {(item.amount || item.unit) && (
+                                <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
+                                  {item.amount ? `${item.amount} ` : ""}
+                                  {item.unit || ""}
+                                </span>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(item)}
+                                className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* 3. Expandable Section: Courses Achetées / Checked Items */}
+            {checkedItems.length > 0 && (
+              <div className="pt-2 border-t border-slate-200/60 space-y-2">
+                {/* Expandable Accordion Header */}
+                <button
+                  type="button"
+                  onClick={() => setIsPurchasedExpanded((prev) => !prev)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-white border border-slate-100 shadow-2xs hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-md bg-emerald-100 text-[#5DB534] flex items-center justify-center text-xs">
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700">
+                      Courses achetées
+                    </span>
+                    <span className="text-[10px] font-extrabold bg-[#5DB534]/10 text-[#5DB534] px-2 py-0.5 rounded-full">
+                      {checkedItems.length}
+                    </span>
                   </div>
-                ))}
+
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    <span className="text-[10px] font-medium">
+                      {isPurchasedExpanded ? "Replier" : "Déplier"}
+                    </span>
+                    {isPurchasedExpanded ? (
+                      <ChevronUp className="w-4 h-4 text-slate-500" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-slate-500" />
+                    )}
+                  </div>
+                </button>
+
+                {/* Collapsible Content */}
+                {isPurchasedExpanded && (
+                  <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {checkedItems.map((item) => {
+                      const activeSources: RecipeContribution[] =
+                        item.recipeSources && item.recipeSources.length > 0
+                          ? item.recipeSources
+                          : item.recipeId
+                          ? [
+                              {
+                                recipeId: item.recipeId,
+                                recipeTitle: item.recipeTitle || "Recette",
+                                recipeImageUrl: item.recipeImageUrl,
+                              },
+                            ]
+                          : [];
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex items-center justify-between gap-3 opacity-75 hover:opacity-100 transition-all"
+                        >
+                          <div
+                            onClick={() => handleToggle(item)}
+                            className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
+                          >
+                            <div className="w-5 h-5 rounded-lg bg-[#5DB534] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                              <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                            </div>
+
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <span className="text-xs font-semibold text-slate-500 line-through truncate">
+                                {item.name}
+                              </span>
+                              {activeSources.length > 0 && (
+                                <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1 mt-0.5 truncate">
+                                  <span>🍽️</span>
+                                  <span className="truncate max-w-[200px]">
+                                    {activeSources.map((s) => s.recipeTitle).join(" + ")}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Recipe Miniatures Avatars */}
+                            {activeSources.length > 0 && (
+                              <div className="flex items-center -space-x-2 shrink-0 opacity-60">
+                                {activeSources.map((src, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-2xs bg-slate-100 shrink-0"
+                                    title={src.recipeTitle}
+                                  >
+                                    {src.recipeImageUrl ? (
+                                      <img
+                                        src={src.recipeImageUrl}
+                                        alt={src.recipeTitle}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full bg-emerald-100 flex items-center justify-center text-[8px]">
+                                        🍽️
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Amount Pill */}
+                            {(item.amount || item.unit) && (
+                              <span className="text-[10px] font-semibold text-slate-400 bg-slate-200/60 px-2 py-0.5 rounded-md">
+                                {item.amount ? `${item.amount} ` : ""}
+                                {item.unit || ""}
+                              </span>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(item)}
+                              className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
