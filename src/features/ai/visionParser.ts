@@ -232,7 +232,7 @@ export async function cropAndRotateRegion(
  */
 export async function parseRecipeAlbumWithAI(
   files: File[],
-  userId: string = "guest-user",
+  userId: string,
   onProgress?: (status: string) => void
 ): Promise<AIParseResult> {
   const logs: string[] = [];

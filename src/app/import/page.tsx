@@ -33,6 +33,7 @@ import {
   parseRecipeAlbumWithAI,
 } from "@/features/ai/visionParser";
 import { saveRecipeToDb } from "@/features/recipes/actions";
+import { BottomNav } from "@/components/layout/BottomNav";
 
 export default function AIImportPage() {
   const router = useRouter();
@@ -125,6 +126,11 @@ export default function AIImportPage() {
   const startBatchAnalysis = async () => {
     if (pairs.length === 0 || isProcessingBatch) return;
 
+    if (!user?.id) {
+      router.push("/login?redirectedFrom=/import");
+      return;
+    }
+
     setIsProcessingBatch(true);
     setShouldStopQueue(false);
     addLog(`Démarrage de l'analyse par lot pour ${pairs.length} recette(s)...`);
@@ -161,12 +167,12 @@ export default function AIImportPage() {
 
         const result = await parseRecipeAlbumWithAI(
           filesToParse,
-          user?.id,
+          user.id,
           (status) => setGlobalProgressMessage(`Recette ${i + 1}/${updatedPairs.length} : ${status}`)
         );
 
-        // Save immediately to local/encrypted store
-        await saveRecipeToDb(result.recipe, user?.id);
+        // Save immediately to local/encrypted store linked to user.id
+        await saveRecipeToDb(result.recipe, user.id);
 
         pair.status = "success";
         pair.recipe = result.recipe;
@@ -198,6 +204,11 @@ export default function AIImportPage() {
     const pair = pairs[index];
     if (!pair) return;
 
+    if (!user?.id) {
+      router.push("/login?redirectedFrom=/import");
+      return;
+    }
+
     const updatedPairs = [...pairs];
     pair.status = "processing";
     pair.error = undefined;
@@ -212,11 +223,11 @@ export default function AIImportPage() {
 
       const result = await parseRecipeAlbumWithAI(
         filesToParse,
-        user?.id,
+        user.id,
         (status) => setGlobalProgressMessage(status)
       );
 
-      await saveRecipeToDb(result.recipe, user?.id);
+      await saveRecipeToDb(result.recipe, user.id);
 
       pair.status = "success";
       pair.recipe = result.recipe;
@@ -696,6 +707,9 @@ export default function AIImportPage() {
           </div>
         )}
       </div>
+
+      {/* Bottom Navigation */}
+      <BottomNav />
     </div>
   );
 }

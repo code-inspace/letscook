@@ -1,39 +1,92 @@
-import React from "react";
-import Image from "next/image";
-import { getCurrentUser } from "@/lib/queries";
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { LogOut, ShieldCheck, ChefHat } from "lucide-react";
+import { useAuth } from "@/providers/AuthProvider";
+import { signOutUser } from "@/features/auth/actions";
+import { getStoredRecipes, fetchRecipesFromDb } from "@/features/recipes/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 
-export default async function ProfilePage() {
-  const user = await getCurrentUser();
-  const formattedPlan =
-    user.plan.charAt(0).toUpperCase() + user.plan.slice(1).toLowerCase();
+function getInitials(name?: string, email?: string): string {
+  if (name && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  if (email && email.trim()) {
+    const beforeAt = email.split("@")[0];
+    const parts = beforeAt.split(/[._-]/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return beforeAt.substring(0, 2).toUpperCase();
+  }
+  return "LC";
+}
+
+export default function ProfilePage() {
+  const { user } = useAuth();
+  const [recipesCount, setRecipesCount] = useState<number>(0);
+
+  useEffect(() => {
+    if (user?.id) {
+      const cached = getStoredRecipes(user.id);
+      setRecipesCount(cached.length);
+      fetchRecipesFromDb(user.id).then((list) => setRecipesCount(list.length));
+    }
+  }, [user?.id]);
+
+  const name = user?.name || user?.email?.split("@")[0] || "Chef Cuisinier";
+  const email = user?.email || "";
+  const plan = user?.tier || "Basic";
+  const initials = getInitials(user?.name, user?.email);
 
   return (
     <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] bg-white px-5 pt-7 pb-24 relative overflow-y-auto">
-      <h1 className="text-[24px] font-normal text-[#1C1C1C]">Profil</h1>
+      <h1 className="text-xl font-extrabold text-[#181A20]">Mon Profil</h1>
 
-      {/* User profile card */}
-      <div className="mt-6 p-5 rounded-2xl bg-[#F4F6F5] flex items-center gap-4">
-        <div className="relative w-14 h-14 rounded-2xl overflow-hidden shrink-0 bg-white">
-          {user.avatarUrl ? (
-            <Image
-              src={user.avatarUrl}
-              alt={user.name}
-              width={56}
-              height={56}
-              className="w-full h-full object-cover"
-            />
-          ) : null}
+      {/* User profile card with Initials Avatar */}
+      <div className="mt-6 p-5 rounded-3xl bg-[#F4F6F5] flex items-center gap-4 border border-slate-100">
+        <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 bg-gradient-to-tr from-[#181A20] to-[#2C303B] text-white flex items-center justify-center font-extrabold text-lg shadow-sm tracking-wider">
+          {initials}
         </div>
 
         <div className="flex flex-col items-start gap-1">
-          <span className="text-[15px] font-medium text-[#1C1C1C]">
-            {user.name}
-          </span>
-          <span className="inline-block px-2.5 py-0.5 rounded-full border border-[#1C1C1C] text-[10px] font-normal text-[#1C1C1C]">
-            Plan {formattedPlan}
+          <span className="text-base font-extrabold text-[#181A20]">{name}</span>
+          {email && <span className="text-xs text-[#8E929E]">{email}</span>}
+          <span className="inline-block px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-bold text-[#181A20] mt-1">
+            Plan {plan}
           </span>
         </div>
+      </div>
+
+      {/* Stats Summary */}
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col items-center justify-center text-center">
+          <ChefHat className="w-5 h-5 text-[#5DB534] mb-1" />
+          <span className="text-lg font-extrabold text-[#181A20]">{recipesCount}</span>
+          <span className="text-[11px] text-[#8E929E]">Recettes importées</span>
+        </div>
+
+        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col items-center justify-center text-center">
+          <ShieldCheck className="w-5 h-5 text-emerald-600 mb-1" />
+          <span className="text-xs font-bold text-emerald-700">AES-256</span>
+          <span className="text-[11px] text-[#8E929E]">Chiffrement actif</span>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="mt-8 space-y-3">
+        <button
+          type="button"
+          onClick={() => signOutUser()}
+          className="w-full py-3.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold rounded-2xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Se déconnecter</span>
+        </button>
       </div>
 
       <BottomNav />

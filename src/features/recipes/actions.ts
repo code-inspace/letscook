@@ -5,11 +5,10 @@ import { createClient } from "@/utils/supabase/client";
 const RECIPES_STORAGE_KEY_PREFIX = "letscook_recipes_";
 
 export function getStoredRecipes(userId?: string): Recipe[] {
-  const targetId = userId || "guest-user";
-  if (typeof window === "undefined") return [];
+  if (!userId || typeof window === "undefined") return [];
 
   try {
-    const raw = localStorage.getItem(`${RECIPES_STORAGE_KEY_PREFIX}${targetId}`);
+    const raw = localStorage.getItem(`${RECIPES_STORAGE_KEY_PREFIX}${userId}`);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -21,12 +20,11 @@ export function getStoredRecipes(userId?: string): Recipe[] {
   return [];
 }
 
-export function saveStoredRecipes(recipes: Recipe[], userId?: string): void {
-  const targetId = userId || "guest-user";
-  if (typeof window === "undefined") return;
+export function saveStoredRecipes(recipes: Recipe[], userId: string): void {
+  if (!userId || typeof window === "undefined") return;
   try {
     localStorage.setItem(
-      `${RECIPES_STORAGE_KEY_PREFIX}${targetId}`,
+      `${RECIPES_STORAGE_KEY_PREFIX}${userId}`,
       JSON.stringify(recipes)
     );
     window.dispatchEvent(new CustomEvent("letscook:recipes-updated"));
@@ -35,15 +33,15 @@ export function saveStoredRecipes(recipes: Recipe[], userId?: string): void {
   }
 }
 
-export async function fetchRecipesFromDb(userId?: string): Promise<Recipe[]> {
-  const targetId = userId || "guest-user";
+export async function fetchRecipesFromDb(userId: string): Promise<Recipe[]> {
+  if (!userId) return [];
   const supabase = createClient();
 
   try {
     const { data, error } = await supabase
       .from("recipes")
       .select("*")
-      .eq("user_id", targetId)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
     if (!error && data && Array.isArray(data)) {
@@ -89,60 +87,122 @@ export async function fetchRecipesFromDb(userId?: string): Promise<Recipe[]> {
           updatedAt: row.updated_at || new Date().toISOString(),
         });
       }
-      saveStoredRecipes(decryptedRecipes, targetId);
+      saveStoredRecipes(decryptedRecipes, userId);
       return decryptedRecipes;
     }
   } catch (err) {
-    console.warn("fetchRecipesFromDb error, falling back to local storage:", err);
+    console.warn("fetchRecipesFromDb error, falling back to local cache:", err);
   }
 
-  return getStoredRecipes(targetId);
+  return getStoredRecipes(userId);
 }
 
-export async function saveRecipeToDb(recipe: Recipe, userId?: string): Promise<Recipe> {
-  const targetId = userId || recipe.userId || "guest-user";
+export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Recipe> {
+  if (!userId) {
+    throw new Error("Authentification requise pour enregistrer une recette.");
+  }
+
+  const recipeWithUser: Recipe = {
+    ...recipe,
+    userId,
+  };
+
   const supabase = createClient();
 
-  // 1. Instant local sync
-  const current = getStoredRecipes(targetId);
-  const existingIdx = current.findIndex((r) => r.id === recipe.id);
+  // 1. Instant local sync for snappy UI
+  const current = getStoredRecipes(userId);
+  const existingIdx = current.findIndex((r) => r.id === recipeWithUser.id);
   const updatedList =
     existingIdx >= 0
-      ? current.map((r) => (r.id === recipe.id ? recipe : r))
-      : [recipe, ...current];
-  saveStoredRecipes(updatedList, targetId);
+      ? current.map((r) => (r.id === recipeWithUser.id ? recipeWithUser : r))
+      : [recipeWithUser, ...current];
+  saveStoredRecipes(updatedList, userId);
 
-  // 2. Encrypted Supabase Upsert
+  // 2. Encrypted Supabase Upsert linked to the user account
   try {
-    const encryptedTitle = await encryptText(recipe.title);
-    const encryptedIngredients = await encryptText(JSON.stringify(recipe.ingredients));
-    const encryptedSteps = await encryptText(JSON.stringify(recipe.steps));
+    const encryptedTitle = await encryptText(recipeWithUser.title);
+    const encryptedIngredients = await encryptText(
+      JSON.stringify(recipeWithUser.ingredients)
+    );
+    const encryptedSteps = await encryptText(
+      JSON.stringify(recipeWithUser.steps)
+    );
 
     const payload = {
-      id: recipe.id,
-      user_id: targetId,
+      id: recipeWithUser.id,
+      user_id: userId,
       title: encryptedTitle,
-      subtitle: recipe.subtitle,
-      category: recipe.category,
-      image_url: recipe.imageUrl,
-      prep_time_minutes: recipe.prepTimeMinutes,
-      difficulty: recipe.difficulty,
-      rating: recipe.rating,
-      servings_base: recipe.servingsBase,
-      spice_level: recipe.spiceLevel,
-      utensils: recipe.utensils,
-      nutrition: recipe.nutrition,
-      allergens: recipe.allergens,
+      subtitle: recipeWithUser.subtitle,
+      category: recipeWithUser.category,
+      image_url: recipeWithUser.imageUrl,
+      prep_time_minutes: recipeWithUser.prepTimeMinutes,
+      difficulty: recipeWithUser.difficulty,
+      rating: recipeWithUser.rating,
+      servings_base: recipeWithUser.servingsBase,
+      spice_level: recipeWithUser.spiceLevel,
+      utensils: recipeWithUser.utensils,
+      nutrition: recipeWithUser.nutrition,
+      allergens: recipeWithUser.allergens,
       ingredients: encryptedIngredients,
       steps: encryptedSteps,
-      is_favorite: Boolean(recipe.isFavorite),
+      is_favorite: Boolean(recipeWithUser.isFavorite),
       updated_at: new Date().toISOString(),
     };
 
-    await supabase.from("recipes").upsert([payload], { onConflict: "id" });
+    const { error } = await supabase
+      .from("recipes")
+      .upsert([payload], { onConflict: "id" });
+
+    if (error) {
+      console.warn("saveRecipeToDb Supabase upsert error:", error);
+    }
   } catch (err) {
-    console.warn("saveRecipeToDb Supabase sync warning:", err);
+    console.warn("saveRecipeToDb encryption/network error:", err);
   }
 
-  return recipe;
+  return recipeWithUser;
+}
+
+export async function deleteRecipeFromDb(recipeId: string, userId: string): Promise<void> {
+  if (!userId) return;
+
+  const current = getStoredRecipes(userId);
+  const filtered = current.filter((r) => r.id !== recipeId);
+  saveStoredRecipes(filtered, userId);
+
+  try {
+    const supabase = createClient();
+    await supabase
+      .from("recipes")
+      .delete()
+      .eq("id", recipeId)
+      .eq("user_id", userId);
+  } catch (err) {
+    console.warn("deleteRecipeFromDb error:", err);
+  }
+}
+
+export async function toggleFavoriteInDb(recipeId: string, userId: string): Promise<boolean> {
+  if (!userId) return false;
+
+  const current = getStoredRecipes(userId);
+  const target = current.find((r) => r.id === recipeId);
+  if (!target) return false;
+
+  const newStatus = !target.isFavorite;
+  target.isFavorite = newStatus;
+  saveStoredRecipes(current, userId);
+
+  try {
+    const supabase = createClient();
+    await supabase
+      .from("recipes")
+      .update({ is_favorite: newStatus, updated_at: new Date().toISOString() })
+      .eq("id", recipeId)
+      .eq("user_id", userId);
+  } catch (err) {
+    console.warn("toggleFavoriteInDb error:", err);
+  }
+
+  return newStatus;
 }
