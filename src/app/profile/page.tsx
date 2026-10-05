@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { LogOut, ShieldCheck, ChefHat } from "lucide-react";
+import Link from "next/link";
+import { LogOut, ShieldCheck, ChefHat, UploadCloud, ArrowRight, Sparkles } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { signOutUser } from "@/features/auth/actions";
 import { getStoredRecipes, fetchRecipesFromDb } from "@/features/recipes/actions";
@@ -44,7 +45,7 @@ export default function ProfilePage() {
   const initials = getInitials(user?.name, user?.email);
 
   return (
-    <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] bg-white px-5 pt-7 pb-24 relative overflow-y-auto">
+    <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] bg-white px-5 pt-7 pb-28 relative overflow-y-auto">
       <h1 className="text-xl font-extrabold text-[#181A20]">Mon Profil</h1>
 
       {/* User profile card with Initials Avatar */}
@@ -77,8 +78,34 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="mt-8 space-y-3">
+      {/* Import Recipes Action Card */}
+      <div className="mt-6">
+        <Link
+          href="/import"
+          className="w-full py-4 px-4.5 bg-gradient-to-r from-[#181A20] to-[#2C303B] text-white rounded-3xl flex items-center justify-between shadow-md active:scale-98 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center text-[#5DB534] shrink-0">
+              <UploadCloud className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col text-left">
+              <span className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                <span>Importer des recettes</span>
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              </span>
+              <span className="text-[10px] text-slate-300 mt-0.5">
+                Prenez en photo vos fiches repas avec l'IA
+              </span>
+            </div>
+          </div>
+          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white group-hover:translate-x-0.5 transition-transform shrink-0">
+            <ArrowRight className="w-4 h-4" />
+          </div>
+        </Link>
+      </div>
+
+      {/* Logout Action */}
+      <div className="mt-4 space-y-3">
         <button
           type="button"
           onClick={() => signOutUser()}

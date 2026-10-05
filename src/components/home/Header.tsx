@@ -51,26 +51,6 @@ export function Header({ user }: HeaderProps) {
           </span>
         </div>
       </Link>
-
-      {/* Right Actions: Import Button (Upload Icon) & Notification Bell */}
-      <div className="flex items-center gap-2">
-        <Link
-          href="/import"
-          className="w-10 h-10 rounded-xl bg-[#F1F2F2] hover:bg-[#EAEBEB] flex items-center justify-center text-[#5DB534] shadow-[0_8px_24px_rgba(0,0,0,0.06)] transition-all active:scale-95 cursor-pointer"
-          aria-label="Importer des recettes par photo"
-          title="Importer des recettes"
-        >
-          <UploadCloud className="w-[19px] h-[19px]" strokeWidth={2} />
-        </Link>
-
-        <button
-          type="button"
-          className="relative w-10 h-10 rounded-xl bg-[#F1F2F2] flex items-center justify-center text-[#1C1C1C] shadow-[0_8px_24px_rgba(0,0,0,0.06)] hover:bg-[#EAEBEB] transition-colors cursor-pointer"
-          aria-label="Notifications"
-        >
-          <Bell className="w-[18px] h-[18px] text-[#1C1C1C]" strokeWidth={1.5} />
-        </button>
-      </div>
     </header>
   );
 }
