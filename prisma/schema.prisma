@@ -18,15 +18,24 @@ enum Difficulty {
   HARD
 }
 
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
 model User {
-  id                     String     @id @default(cuid())
+  id                     String         @id @default(cuid())
   name                   String
-  avatarUrl              String
-  plan                   Plan       @default(BASIC)
-  hasUnreadNotifications Boolean    @default(false)
+  avatarUrl              String?
+  plan                   Plan           @default(BASIC)
+  hasUnreadNotifications Boolean        @default(false)
   favorites              Favorite[]
-  createdAt              DateTime   @default(now())
-  updatedAt              DateTime   @updatedAt
+  mealPlans              MealPlan[]
+  shoppingItems          ShoppingItem[]
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 }
 
 model Category {
@@ -42,18 +51,23 @@ model Category {
 
 model Recipe {
   id              String             @id @default(cuid())
+  userId          String?
   title           String
-  slug            String             @unique
+  subtitle        String?
+  slug            String?            @unique
   imageUrl        String
   durationMinutes Int
   difficulty      Difficulty         @default(EASY)
   rating          Float              @default(5.0)
+  servingsBase    Int                @default(2)
+  spiceLevel      String?
   isFeatured      Boolean            @default(false)
-  categoryId      String
-  category        Category           @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId      String?
+  category        Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   ingredients     RecipeIngredient[]
   steps           Step[]
   favorites       Favorite[]
+  mealPlans       MealPlan[]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 }
@@ -61,7 +75,7 @@ model Recipe {
 model Ingredient {
   id        String             @id @default(cuid())
   name      String
-  imageUrl  String
+  imageUrl  String?
   recipes   RecipeIngredient[]
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
@@ -103,4 +117,44 @@ model Favorite {
   createdAt DateTime @default(now())
 
   @@id([userId, recipeId])
+}
+
+model MealPlan {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipeId       String
+  recipe         Recipe         @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  recipeTitle    String
+  recipeImageUrl String?
+  date           String         // Format: YYYY-MM-DD
+  mealType       MealType       @default(DINNER)
+  servings       Int            @default(2)
+  notes          String?
+  shoppingItems  ShoppingItem[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([userId, date])
+}
+
+model ShoppingItem {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  amount       Float?
+  unit         String?
+  checked      Boolean   @default(false)
+  isCustom     Boolean   @default(false)
+  recipeId     String?
+  recipeTitle  String?
+  mealPlanId   String?
+  mealPlan     MealPlan? @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  mealPlanDate String?
+  category     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, checked])
 }
