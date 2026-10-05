@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Sparkles,
   Utensils,
@@ -12,10 +13,13 @@ import {
   ChefHat,
   Search,
   BookOpen,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { Recipe } from "@/features/recipes/types";
 import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
+import { MealPlan } from "@/features/calendar/types";
+import { fetchMealPlansFromDb, getStoredMealPlans } from "@/features/calendar/actions";
 import { Header } from "@/components/home/Header";
 import { HeroTitle } from "@/components/home/HeroTitle";
 import { heroConfig } from "@/lib/config";
@@ -30,33 +34,71 @@ const DEFAULT_CATEGORIES = [
   { id: "desserts", name: "Desserts", slug: "Desserts" },
 ];
 
+function formatMealPlanDateBadge(dateStr: string, mealType: string): string {
+  const todayStr = new Date().toISOString().split("T")[0];
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split("T")[0];
+
+  const mealIcon =
+    mealType === "lunch" ? "☀️ Midi" : mealType === "dinner" ? "🌙 Soir" : "☕ Matin";
+
+  if (dateStr === todayStr) {
+    return `Aujourd'hui • ${mealIcon}`;
+  }
+  if (dateStr === tomorrowStr) {
+    return `Demain • ${mealIcon}`;
+  }
+
+  try {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    const formatted = dateObj.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+    return `${formatted} • ${mealIcon}`;
+  } catch {
+    return `${dateStr} • ${mealIcon}`;
+  }
+}
+
 export default function HomePage() {
+  const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [searchQuery, setSearchQuery] = useState<string>("");
   const [isLoadingRecipes, setIsLoadingRecipes] = useState<boolean>(true);
 
-  const loadRecipes = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (!user?.id) {
       setRecipes([]);
+      setMealPlans([]);
       setIsLoadingRecipes(false);
       return;
     }
 
     // 1. Instant local cache load
-    const cached = getStoredRecipes(user.id);
-    if (cached.length > 0) {
-      setRecipes(cached);
+    const cachedRecipes = getStoredRecipes(user.id);
+    const cachedPlans = getStoredMealPlans(user.id);
+    if (cachedRecipes.length > 0) {
+      setRecipes(cachedRecipes);
+      setMealPlans(cachedPlans);
       setIsLoadingRecipes(false);
     }
 
     // 2. Database fetch from Supabase
     try {
-      const dbRecipes = await fetchRecipesFromDb(user.id);
+      const [dbRecipes, dbPlans] = await Promise.all([
+        fetchRecipesFromDb(user.id),
+        fetchMealPlansFromDb(user.id),
+      ]);
       setRecipes(dbRecipes);
+      setMealPlans(dbPlans);
     } catch (err) {
-      console.warn("Erreur chargement recettes:", err);
+      console.warn("Erreur chargement données accueil:", err);
     } finally {
       setIsLoadingRecipes(false);
     }
@@ -64,31 +106,35 @@ export default function HomePage() {
 
   useEffect(() => {
     if (user?.id) {
-      loadRecipes();
+      loadData();
     } else if (!authLoading) {
       setIsLoadingRecipes(false);
     }
 
-    const handleUpdate = () => loadRecipes();
+    const handleUpdate = () => loadData();
     window.addEventListener("letscook:recipes-updated", handleUpdate);
+    window.addEventListener("letscook:meal-plans-updated", handleUpdate);
     return () => {
       window.removeEventListener("letscook:recipes-updated", handleUpdate);
+      window.removeEventListener("letscook:meal-plans-updated", handleUpdate);
     };
-  }, [user?.id, authLoading, loadRecipes]);
+  }, [user?.id, authLoading, loadData]);
 
-  // Filter recipes by category & search query
+  // Upcoming meal plans (today and future, sorted chronologically)
+  const todayStr = new Date().toISOString().split("T")[0];
+  const upcomingPlans = useMemo(() => {
+    return mealPlans
+      .filter((p) => p.date >= todayStr)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [mealPlans, todayStr]);
+
+  // Filter recipes by category
   const filteredRecipes = recipes.filter((recipe) => {
-    const matchCat =
+    return (
       !selectedCategory ||
       (recipe.category &&
-        recipe.category.toLowerCase().includes(selectedCategory.toLowerCase()));
-    const matchSearch =
-      !searchQuery ||
-      recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      recipe.ingredients?.some((ing) =>
-        ing.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    return matchCat && matchSearch;
+        recipe.category.toLowerCase().includes(selectedCategory.toLowerCase()))
+    );
   });
 
   const featuredRecipe = filteredRecipes[0] || null;
@@ -102,7 +148,24 @@ export default function HomePage() {
       {/* 2. Hero Catchphrase */}
       <HeroTitle config={heroConfig} />
 
-      {/* 3. Category Filter Chips */}
+      {/* 3. Search Bar Redirect Button */}
+      <div className="mt-4 px-5">
+        <button
+          type="button"
+          onClick={() => router.push("/search")}
+          className="w-full h-11 pl-4 pr-4 rounded-2xl bg-[#F4F6F5] hover:bg-[#ECEEED] text-xs text-[#8E929E] flex items-center justify-between border border-slate-100/80 shadow-2xs active:scale-[0.99] transition-all cursor-pointer"
+        >
+          <div className="flex items-center gap-2.5">
+            <Search className="w-4 h-4 text-slate-400" />
+            <span>Rechercher une recette, un ingrédient...</span>
+          </div>
+          <span className="text-[10px] font-bold text-[#5DB534] bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/50">
+            Explorer
+          </span>
+        </button>
+      </div>
+
+      {/* 4. Category Filter Chips */}
       <div className="mt-4 px-5">
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
           {DEFAULT_CATEGORIES.map((cat) => {
@@ -125,7 +188,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* 4. Content Area: Database Recipes or Empty State */}
+      {/* 5. Content Area: Database Recipes or Empty State */}
       <div className="px-5 mt-5">
         {isLoadingRecipes ? (
           <div className="py-20 flex flex-col items-center justify-center text-center">
@@ -210,7 +273,81 @@ export default function HomePage() {
               </section>
             )}
 
-            {/* Other Recipes List */}
+            {/* 6. Mes Prochaines Recettes (Upcoming Planned Meals) */}
+            <div className="pt-2 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-[#181A20] flex items-center gap-1.5">
+                  <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
+                  <span>Mes prochaines recettes</span>
+                </h3>
+                <Link
+                  href="/calendar"
+                  className="text-[11px] font-bold text-[#5DB534] hover:underline flex items-center gap-0.5"
+                >
+                  <span>Voir le planning</span>
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+
+              {upcomingPlans.length === 0 ? (
+                <div className="p-4 bg-[#F8F9FB] rounded-2xl border border-slate-100 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-50 text-[#5DB534] flex items-center justify-center shrink-0">
+                      <CalendarIcon className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-[#181A20]">
+                        Aucun repas planifié
+                      </p>
+                      <p className="text-[10px] text-[#8E929E]">
+                        Planifiez vos recettes pour générer votre liste de courses
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/calendar"
+                    className="px-3 py-1.5 bg-[#5DB534] hover:bg-[#4FA12A] text-white text-[10px] font-bold rounded-full shadow-2xs active:scale-95 transition-all shrink-0"
+                  >
+                    Planifier
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
+                  {upcomingPlans.map((plan) => (
+                    <Link
+                      key={plan.id}
+                      href={`/recipes/${plan.recipeId}`}
+                      className="min-w-[200px] max-w-[220px] p-3 rounded-2xl bg-white border border-slate-100 shadow-2xs hover:shadow-xs transition-all flex flex-col gap-2 shrink-0 group active:scale-98"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-slate-100 shadow-2xs border border-white">
+                          {plan.recipeImageUrl ? (
+                            <img
+                              src={plan.recipeImageUrl}
+                              alt={plan.recipeTitle}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-slate-100" />
+                          )}
+                        </div>
+
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <span className="text-xs font-bold text-[#181A20] truncate">
+                            {plan.recipeTitle}
+                          </span>
+                          <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50 mt-1 inline-block truncate">
+                            {formatMealPlanDateBadge(plan.date, plan.mealType)}
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 7. Toutes mes recettes list */}
             {remainingRecipes.length > 0 && (
               <div className="space-y-3 pt-2">
                 <h3 className="text-xs font-bold text-[#181A20]">
@@ -257,7 +394,7 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* 5. Bottom Navigation */}
+      {/* 8. Bottom Navigation */}
       <BottomNav />
     </div>
   );

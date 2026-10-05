@@ -12,6 +12,7 @@ export interface RecipeStep {
   title: string;
   description: string;
   imageUrl?: string;
+  audioUrl?: string;
   originalCutoutUrl?: string;
   studioAiImageUrl?: string;
   imagePrompt?: string;

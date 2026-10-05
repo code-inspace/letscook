@@ -8,37 +8,27 @@ interface StepBackgroundProps {
 
 export function StepBackground({ imageUrl, title }: StepBackgroundProps) {
   return (
-    <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden select-none">
+    <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden select-none bg-black">
       {/* Base full-frame image */}
       {imageUrl ? (
         <Image
           src={imageUrl}
           alt={title}
           fill
-          className="object-cover object-center"
+          className="object-cover object-center brightness-[0.75]"
           priority
-          sizes="(max-width: 768px) 100vw, 375px"
+          sizes="100vw"
         />
       ) : (
-        <div className="w-full h-full bg-[#4A3B32]" />
+        <div className="w-full h-full bg-[#1A1A1A]" />
       )}
 
-      {/* Top blur overlay layer masked with gradient */}
-      <div
-        className="absolute top-0 left-0 right-0 h-[45%] backdrop-blur-md"
-        style={{
-          maskImage: "linear-gradient(to bottom, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)",
-          WebkitMaskImage:
-            "linear-gradient(to bottom, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)",
-        }}
-      />
-
-      {/* Multistage gradient overlay */}
+      {/* Multistage dark gradient overlay - pure dark, zero white bleed */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            "linear-gradient(180deg, rgba(120, 85, 60, 0.75) 0%, rgba(60, 40, 30, 0.20) 45%, rgba(0, 0, 0, 0.25) 100%)",
+            "linear-gradient(180deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.45) 45%, rgba(0, 0, 0, 0.95) 100%)",
         }}
       />
     </div>

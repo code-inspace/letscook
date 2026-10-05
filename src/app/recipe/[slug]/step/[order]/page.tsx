@@ -29,8 +29,8 @@ export default async function StepPage({ params }: StepPageProps) {
   const { step, recipeSlug, totalSteps, allSteps } = data;
 
   return (
-    <div className="relative w-full h-[100dvh] sm:min-h-[812px] sm:h-[812px] flex flex-col justify-between overflow-hidden select-none">
-      {/* 1. Fullscreen background image with blur & gradient overlay */}
+    <div className="fixed inset-0 z-50 w-full h-[100dvh] max-h-[100dvh] bg-black flex flex-col justify-between overflow-hidden select-none touch-none overscroll-none text-white">
+      {/* 1. Fullscreen background image with dark gradient overlay */}
       <StepBackground imageUrl={step.imageUrl} title={step.title} />
 
       {/* 2. Top bar with Chevron Back and 2-line Steps Sheet Menu */}
