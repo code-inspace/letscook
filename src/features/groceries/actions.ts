@@ -1,8 +1,8 @@
-import { ShoppingItem } from "./types";
+import { ShoppingItem, RecipeContribution } from "./types";
 import { categorizeIngredient } from "./categorizer";
 import { createClient } from "@/utils/supabase/client";
-import { fetchMealPlansFromDb, getStoredMealPlans } from "@/features/calendar/actions";
-import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
+import { fetchMealPlansFromDb } from "@/features/calendar/actions";
+import { fetchRecipesFromDb } from "@/features/recipes/actions";
 
 const SHOPPING_ITEMS_KEY_PREFIX = "letscook_shopping_items_";
 const EXCLUDED_ITEMS_KEY_PREFIX = "letscook_excluded_groceries_";
@@ -71,32 +71,55 @@ export function normalizeIngredientKey(name: string): string {
 }
 
 /**
- * Computes and synchronizes the full shopping list:
- * 1. Automatic upcoming meal plan ingredients (date >= today, mutualized across recipes)
- * 2. Custom manual ingredients added by the user
+ * Computes, synchronizes and saves the full shopping list directly in Supabase DB:
+ * 1. Reads existing DB shopping items.
+ * 2. Mutualizes upcoming meal plan ingredients (date >= today).
+ * 3. Persists all rows into public.shopping_items in Supabase.
  */
 export async function syncAndFetchShoppingList(userId: string): Promise<ShoppingItem[]> {
   if (!userId) return [];
 
+  const supabase = createClient();
   const todayStr = new Date().toISOString().split("T")[0];
   const excludedKeys = new Set(getStoredExcludedIngredients(userId));
 
-  // 1. Fetch upcoming meal plans and all recipes
-  const [plans, recipes, customItems] = await Promise.all([
+  // 1. Fetch upcoming meal plans, recipes, and existing DB shopping items in parallel
+  const [plans, recipes, dbShoppingResult] = await Promise.all([
     fetchMealPlansFromDb(userId),
     fetchRecipesFromDb(userId),
-    fetchCustomShoppingItemsFromDb(userId),
+    supabase
+      .from("shopping_items")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false }),
   ]);
 
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
+  const existingDbItems = (dbShoppingResult.data || []) as any[];
+
+  // Track checked states from existing DB items
+  const checkStatusMap = new Map<string, boolean>();
+  existingDbItems.forEach((row) => {
+    checkStatusMap.set(row.id, Boolean(row.checked));
+  });
+
+  // Extract custom manual items from DB
+  const customItems: ShoppingItem[] = existingDbItems
+    .filter((row) => row.is_custom)
+    .map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      amount: row.amount,
+      unit: row.unit,
+      checked: Boolean(row.checked),
+      isCustom: true,
+      category: row.category || categorizeIngredient(row.name),
+      createdAt: row.created_at || new Date().toISOString(),
+    }));
 
   // 2. Extract upcoming meal plans (today & future)
   const upcomingPlans = plans.filter((p) => p.date >= todayStr);
-
-  const existingLocalItems = getStoredShoppingItems(userId);
-  const checkStatusMap = new Map(
-    existingLocalItems.map((item) => [item.id, item.checked])
-  );
 
   // Aggregation Map by normalized key (e.g. "carotte" -> merged item with 10 + 5 = 15 carottes)
   const aggregatedMap = new Map<string, ShoppingItem>();
@@ -113,7 +136,7 @@ export async function syncAndFetchShoppingList(userId: string): Promise<Shopping
       if (excludedKeys.has(uniqueKey) || excludedKeys.has(legacyKey)) continue;
 
       const deptCategory = categorizeIngredient(ing.name);
-      const recipeContribution = {
+      const recipeContribution: RecipeContribution = {
         recipeId: recipe.id,
         recipeTitle: recipe.title,
         recipeImageUrl: recipe.imageUrl,
@@ -139,7 +162,6 @@ export async function syncAndFetchShoppingList(userId: string): Promise<Shopping
           existing.recipeSources = [];
         }
 
-        // Add if not duplicate source
         const hasSource = existing.recipeSources.some(
           (s) => s.mealPlanId === plan.id && s.recipeId === recipe.id
         );
@@ -174,9 +196,33 @@ export async function syncAndFetchShoppingList(userId: string): Promise<Shopping
   }
 
   const autoItems = Array.from(aggregatedMap.values());
-
-  // 3. Merge mutualized auto items and custom items
   const fullList = [...autoItems, ...customItems];
+
+  // 3. Persist all mutualized and custom items directly to Supabase DB
+  try {
+    const dbPayloads = fullList.map((item) => ({
+      id: item.id,
+      user_id: userId,
+      name: item.name,
+      amount: item.amount,
+      unit: item.unit,
+      checked: item.checked,
+      is_custom: item.isCustom,
+      recipe_id: item.recipeId || null,
+      recipe_title: item.recipeTitle || null,
+      meal_plan_id: item.mealPlanId || null,
+      meal_plan_date: item.mealPlanDate || null,
+      category: item.category || "Articles divers",
+      updated_at: new Date().toISOString(),
+    }));
+
+    if (dbPayloads.length > 0) {
+      await supabase.from("shopping_items").upsert(dbPayloads, { onConflict: "id" });
+    }
+  } catch (err) {
+    console.warn("syncAndFetchShoppingList DB persist error:", err);
+  }
+
   saveStoredShoppingItems(fullList, userId);
   return fullList;
 }
@@ -251,6 +297,7 @@ export async function addCustomShoppingItem(
         checked: newItem.checked,
         is_custom: true,
         category: newItem.category,
+        updated_at: new Date().toISOString(),
       },
     ]);
   } catch (err) {
@@ -273,18 +320,15 @@ export async function toggleShoppingItemInDb(
   );
   saveStoredShoppingItems(updated, userId);
 
-  const target = current.find((i) => i.id === itemId);
-  if (target?.isCustom) {
-    try {
-      const supabase = createClient();
-      await supabase
-        .from("shopping_items")
-        .update({ checked: newChecked, updated_at: new Date().toISOString() })
-        .eq("id", itemId)
-        .eq("user_id", userId);
-    } catch (err) {
-      console.warn("toggleShoppingItemInDb error:", err);
-    }
+  try {
+    const supabase = createClient();
+    await supabase
+      .from("shopping_items")
+      .update({ checked: newChecked, updated_at: new Date().toISOString() })
+      .eq("id", itemId)
+      .eq("user_id", userId);
+  } catch (err) {
+    console.warn("toggleShoppingItemInDb error:", err);
   }
 }
 
@@ -326,18 +370,16 @@ export async function deleteShoppingItemFromList(
   const filtered = current.filter((i) => i.id !== item.id);
   saveStoredShoppingItems(filtered, userId);
 
-  // 3. If custom item, delete from Supabase
-  if (item.isCustom) {
-    try {
-      const supabase = createClient();
-      await supabase
-        .from("shopping_items")
-        .delete()
-        .eq("id", item.id)
-        .eq("user_id", userId);
-    } catch (err) {
-      console.warn("deleteShoppingItemFromList DB error:", err);
-    }
+  // 3. Delete row directly from Supabase DB
+  try {
+    const supabase = createClient();
+    await supabase
+      .from("shopping_items")
+      .delete()
+      .eq("id", item.id)
+      .eq("user_id", userId);
+  } catch (err) {
+    console.warn("deleteShoppingItemFromList DB error:", err);
   }
 }
 
