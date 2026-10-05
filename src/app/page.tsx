@@ -16,6 +16,7 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
+import { getStoredUserSession } from "@/features/auth/actions";
 import { Recipe } from "@/features/recipes/types";
 import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
 import { MealPlan } from "@/features/calendar/types";
@@ -64,13 +65,6 @@ function formatMealPlanDateBadge(dateStr: string, mealType: string): string {
 export default function HomePage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [isLoadingRecipes, setIsLoadingRecipes] = useState<boolean>(true);
-
-  const isFetchingRef = React.useRef<boolean>(false);
-  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Deterministic recipe sorting function (newest first, then stable ID sort)
   const sortRecipesStable = useCallback((list: Recipe[]): Recipe[] => {
@@ -82,26 +76,61 @@ export default function HomePage() {
     });
   }, []);
 
-  const loadData = useCallback(async (silent = false) => {
-    if (!user?.id || isFetchingRef.current) return;
+  // Synchronous immediate cache initialization (0ms initial render)
+  const [recipes, setRecipes] = useState<Recipe[]>(() => {
+    if (typeof window !== "undefined") {
+      const session = getStoredUserSession();
+      const initial = getStoredRecipes(session?.id);
+      return [...initial].sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return a.id.localeCompare(b.id);
+      });
+    }
+    return [];
+  });
+
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>(() => {
+    if (typeof window !== "undefined") {
+      const session = getStoredUserSession();
+      return getStoredMealPlans(session?.id);
+    }
+    return [];
+  });
+
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [isLoadingRecipes, setIsLoadingRecipes] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const session = getStoredUserSession();
+      const initial = getStoredRecipes(session?.id);
+      return initial.length === 0;
+    }
+    return true;
+  });
+
+  const isFetchingRef = React.useRef<boolean>(false);
+  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const loadData = useCallback(async (silent = true) => {
+    const currentUserId = user?.id || getStoredUserSession()?.id;
+    if (!currentUserId || isFetchingRef.current) return;
     isFetchingRef.current = true;
 
     // 1. Instant local cache load
-    const cachedRecipes = getStoredRecipes(user.id);
-    const cachedPlans = getStoredMealPlans(user.id);
+    const cachedRecipes = getStoredRecipes(currentUserId);
+    const cachedPlans = getStoredMealPlans(currentUserId);
     if (cachedRecipes.length > 0) {
       setRecipes(sortRecipesStable(cachedRecipes));
       setMealPlans(cachedPlans);
       setIsLoadingRecipes(false);
-    } else if (!silent) {
-      setIsLoadingRecipes(true);
     }
 
-    // 2. Database fetch from Supabase
+    // 2. Fast background database fetch from Supabase
     try {
       const [dbRecipes, dbPlans] = await Promise.all([
-        fetchRecipesFromDb(user.id),
-        fetchMealPlansFromDb(user.id),
+        fetchRecipesFromDb(currentUserId),
+        fetchMealPlansFromDb(currentUserId),
       ]);
       setRecipes(sortRecipesStable(dbRecipes));
       setMealPlans(dbPlans);

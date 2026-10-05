@@ -4,28 +4,47 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Star, ArrowRight, Heart, Clock } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
+import { getStoredUserSession } from "@/features/auth/actions";
 import { Recipe } from "@/features/recipes/types";
 import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 
 export default function FavoritesPage() {
   const { user, isLoading } = useAuth();
-  const [favoriteRecipes, setFavoriteRecipes] = useState<Recipe[]>([]);
-  const [isFetching, setIsFetching] = useState<boolean>(true);
+  const [favoriteRecipes, setFavoriteRecipes] = useState<Recipe[]>(() => {
+    if (typeof window !== "undefined") {
+      const session = getStoredUserSession();
+      const cached = getStoredRecipes(session?.id);
+      return cached.filter((r) => r.isFavorite);
+    }
+    return [];
+  });
+  const [isFetching, setIsFetching] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const session = getStoredUserSession();
+      const cached = getStoredRecipes(session?.id);
+      return cached.length === 0;
+    }
+    return true;
+  });
 
   useEffect(() => {
-    if (!user?.id) {
+    const currentUserId = user?.id || getStoredUserSession()?.id;
+    if (!currentUserId) {
       if (!isLoading) setIsFetching(false);
       return;
     }
 
     const loadFavs = async () => {
-      const cached = getStoredRecipes(user.id);
+      const cached = getStoredRecipes(currentUserId);
       const favs = cached.filter((r) => r.isFavorite);
-      setFavoriteRecipes(favs);
+      if (favs.length > 0) {
+        setFavoriteRecipes(favs);
+        setIsFetching(false);
+      }
 
       try {
-        const all = await fetchRecipesFromDb(user.id);
+        const all = await fetchRecipesFromDb(currentUserId);
         setFavoriteRecipes(all.filter((r) => r.isFavorite));
       } catch (err) {
         console.warn("loadFavs error:", err);
