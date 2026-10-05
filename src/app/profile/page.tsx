@@ -120,7 +120,7 @@ export default function ProfilePage() {
             </span>
             <span className="text-[10px] text-emerald-800 font-medium mt-0.5">
               {syncStatus
-                ? `Synchro : ${syncStatus.recipesCount} recettes • ${syncStatus.mealPlansCount} repas • ${syncStatus.shoppingCount} courses`
+                ? `Synchro : ${syncStatus.recipesCount} recettes • ${syncStatus.ingredientsCount} ingrédients • ${syncStatus.mealPlansCount} repas • ${syncStatus.shoppingCount} courses`
                 : "Synchroniser vos données locales vers le cloud"}
             </span>
           </div>

@@ -9,6 +9,7 @@ export interface SyncResult {
   recipesCount: number;
   mealPlansCount: number;
   shoppingCount: number;
+  ingredientsCount: number;
   syncedAt: string;
   error?: string;
 }
@@ -16,6 +17,7 @@ export interface SyncResult {
 /**
  * Scans all local data on the device (localStorage) and synchronizes bidirectionally with Supabase.
  * - Pushes un-synced local recipes, meal plans, and custom shopping items to Supabase.
+ * - Populates the ingredients table from all recipes.
  * - Pulls latest remote cloud data and merges into local cache.
  */
 export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncResult> {
@@ -25,6 +27,7 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       recipesCount: 0,
       mealPlansCount: 0,
       shoppingCount: 0,
+      ingredientsCount: 0,
       syncedAt: new Date().toISOString(),
       error: "Utilisateur non connecté.",
     };
@@ -34,6 +37,7 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
   let recipesCount = 0;
   let mealPlansCount = 0;
   let shoppingCount = 0;
+  let ingredientsCount = 0;
 
   try {
     // 1. SCAN AND SYNC RECIPES
@@ -73,7 +77,45 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
     const remoteRecipes = await fetchRecipesFromDb(userId);
     recipesCount = remoteRecipes.length;
 
-    // 2. SCAN AND SYNC MEAL PLANS (CALENDAR)
+    // 2. SCAN AND SYNC INGREDIENTS TABLE (From all recipes)
+    const distinctIngredients = new Map<string, { id: string; name: string; category: string; imageUrl?: string }>();
+    for (const recipe of localRecipes) {
+      if (recipe.ingredients && Array.isArray(recipe.ingredients)) {
+        for (const ing of recipe.ingredients) {
+          if (ing.name && ing.name.trim()) {
+            const cleanName = ing.name.trim();
+            const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+            if (!distinctIngredients.has(ingId)) {
+              distinctIngredients.set(ingId, {
+                id: ingId,
+                name: cleanName,
+                category: categorizeIngredient(cleanName),
+                imageUrl: ing.imageUrl || undefined,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    for (const ing of Array.from(distinctIngredients.values())) {
+      try {
+        await supabase.from("ingredients").upsert([
+          {
+            id: ing.id,
+            name: ing.name,
+            category: ing.category,
+            image_url: ing.imageUrl || null,
+            updated_at: new Date().toISOString(),
+          }
+        ], { onConflict: "id" });
+      } catch (err) {
+        console.warn("Error upserting ingredient:", err);
+      }
+    }
+    ingredientsCount = distinctIngredients.size;
+
+    // 3. SCAN AND SYNC MEAL PLANS (CALENDAR)
     const localPlans = getStoredMealPlans(userId);
     const planKeys = allKeys.filter(
       (k) => k.startsWith("letscook_meal_plans_") && k !== `letscook_meal_plans_${userId}`
@@ -102,9 +144,9 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
           user_id: userId,
           recipe_id: plan.recipeId,
           recipe_title: plan.recipeTitle,
-          recipe_image_url: plan.recipeImageUrl,
+          recipe_image_url: plan.recipeImageUrl || null,
           date: plan.date,
-          meal_type: plan.mealType,
+          meal_type: plan.mealType || "dinner",
           servings: plan.servings || 2,
           notes: plan.notes || null,
           updated_at: new Date().toISOString(),
@@ -118,7 +160,7 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
     const remotePlans = await fetchMealPlansFromDb(userId);
     mealPlansCount = remotePlans.length;
 
-    // 3. SCAN AND SYNC CUSTOM SHOPPING ITEMS
+    // 4. SCAN AND SYNC SHOPPING ITEMS
     const localShopping = getStoredShoppingItems(userId);
     const customItems = localShopping.filter((i) => i.isCustom);
     for (const item of customItems) {
@@ -152,6 +194,7 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       recipesCount,
       mealPlansCount,
       shoppingCount,
+      ingredientsCount,
       syncedAt: nowIso,
     };
   } catch (err: any) {
@@ -161,6 +204,7 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       recipesCount,
       mealPlansCount,
       shoppingCount,
+      ingredientsCount,
       syncedAt: new Date().toISOString(),
       error: err.message || "Erreur de synchronisation",
     };

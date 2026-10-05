@@ -1,6 +1,7 @@
 import { Recipe } from "./types";
 import { encryptText, decryptText, isEncrypted } from "@/lib/crypto/encryption";
 import { createClient } from "@/utils/supabase/client";
+import { categorizeIngredient } from "@/features/groceries/categorizer";
 
 const RECIPES_STORAGE_KEY_PREFIX = "letscook_recipes_";
 
@@ -155,6 +156,32 @@ export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Re
 
     if (error) {
       console.warn("saveRecipeToDb Supabase upsert error:", error);
+    }
+
+    // 3. Upsert each ingredient into public.ingredients table
+    if (recipeWithUser.ingredients && Array.isArray(recipeWithUser.ingredients)) {
+      for (const ing of recipeWithUser.ingredients) {
+        if (ing.name && ing.name.trim()) {
+          const cleanName = ing.name.trim();
+          const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+          try {
+            await supabase
+              .from("ingredients")
+              .upsert(
+                [
+                  {
+                    id: ingId,
+                    name: cleanName,
+                    category: categorizeIngredient(cleanName),
+                    image_url: ing.imageUrl || null,
+                    updated_at: new Date().toISOString(),
+                  },
+                ],
+                { onConflict: "id" }
+              );
+          } catch {}
+        }
+      }
     }
   } catch (err) {
     console.warn("saveRecipeToDb encryption/network error:", err);
