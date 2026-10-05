@@ -1,4 +1,5 @@
 import { ShoppingItem } from "./types";
+import { categorizeIngredient } from "./categorizer";
 import { createClient } from "@/utils/supabase/client";
 import { fetchMealPlansFromDb, getStoredMealPlans } from "@/features/calendar/actions";
 import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
@@ -95,6 +96,7 @@ export async function syncAndFetchShoppingList(userId: string): Promise<Shopping
 
       const itemId = `auto_${plan.id}_${ing.id || Math.random().toString(36).substring(2, 7)}`;
       const isChecked = checkStatusMap.get(itemId) ?? false;
+      const deptCategory = categorizeIngredient(ing.name);
 
       autoItems.push({
         id: itemId,
@@ -108,7 +110,7 @@ export async function syncAndFetchShoppingList(userId: string): Promise<Shopping
         recipeTitle: recipe.title,
         mealPlanId: plan.id,
         mealPlanDate: plan.date,
-        category: ing.category || "Ingrédients Recettes",
+        category: deptCategory,
         createdAt: plan.createdAt,
       });
     }
@@ -141,7 +143,7 @@ export async function fetchCustomShoppingItemsFromDb(userId: string): Promise<Sh
         unit: row.unit,
         checked: Boolean(row.checked),
         isCustom: true,
-        category: row.category || "Articles divers",
+        category: row.category || categorizeIngredient(row.name),
         createdAt: row.created_at || new Date().toISOString(),
       }));
     }
@@ -161,6 +163,8 @@ export async function addCustomShoppingItem(
 ): Promise<ShoppingItem> {
   if (!userId) throw new Error("Authentification requise");
 
+  const deptCategory = categorizeIngredient(name);
+
   const newItem: ShoppingItem = {
     id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     userId,
@@ -169,7 +173,7 @@ export async function addCustomShoppingItem(
     unit: unit ? unit.trim() : null,
     checked: false,
     isCustom: true,
-    category: "Articles divers",
+    category: deptCategory,
     createdAt: new Date().toISOString(),
   };
 

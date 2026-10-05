@@ -64,10 +64,32 @@ CREATE TABLE IF NOT EXISTS public.shopping_items (
 
 CREATE INDEX IF NOT EXISTS idx_shopping_items_user ON public.shopping_items(user_id, checked);
 
--- 4. Activer le Row Level Security (RLS) pour la sécurité des données
+-- 4. Table des Ingrédients Génériques
+CREATE TABLE IF NOT EXISTS public.ingredients (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  category TEXT DEFAULT 'Articles divers',
+  image_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 5. Table de Jonction Recettes - Ingrédients
+CREATE TABLE IF NOT EXISTS public.recipe_ingredients (
+  recipe_id TEXT NOT NULL REFERENCES public.recipes(id) ON DELETE CASCADE,
+  ingredient_id TEXT NOT NULL REFERENCES public.ingredients(id) ON DELETE CASCADE,
+  quantity TEXT NOT NULL,
+  order_index INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (recipe_id, ingredient_id)
+);
+
+-- 6. Activer le Row Level Security (RLS) pour la sécurité des données
 ALTER TABLE public.recipes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.meal_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shopping_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ingredients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recipe_ingredients ENABLE ROW LEVEL SECURITY;
 
 -- Politiques de sécurité (Chaque utilisateur ne peut accéder qu'à ses propres données)
 CREATE POLICY "Users can manage own recipes" ON public.recipes
@@ -78,3 +100,10 @@ CREATE POLICY "Users can manage own meal plans" ON public.meal_plans
 
 CREATE POLICY "Users can manage own shopping items" ON public.shopping_items
   FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Public ingredients read access" ON public.ingredients
+  FOR SELECT USING (true);
+
+CREATE POLICY "Public recipe ingredients read access" ON public.recipe_ingredients
+  FOR SELECT USING (true);
+

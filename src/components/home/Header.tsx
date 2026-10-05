@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { Bell, Sparkles } from "lucide-react";
+import { Bell, UploadCloud } from "lucide-react";
 import { UserSession } from "@/features/auth/types";
 
 interface HeaderProps {
@@ -52,15 +52,15 @@ export function Header({ user }: HeaderProps) {
         </div>
       </Link>
 
-      {/* Right Actions: AI Import Scanner & Notification Bell */}
+      {/* Right Actions: Import Button (Upload Icon) & Notification Bell */}
       <div className="flex items-center gap-2">
         <Link
           href="/import"
           className="w-10 h-10 rounded-xl bg-[#F1F2F2] hover:bg-[#EAEBEB] flex items-center justify-center text-[#5DB534] shadow-[0_8px_24px_rgba(0,0,0,0.06)] transition-all active:scale-95 cursor-pointer"
-          aria-label="Scanner une fiche recette par IA"
-          title="Scanner une recette"
+          aria-label="Importer des recettes par photo"
+          title="Importer des recettes"
         >
-          <Sparkles className="w-[18px] h-[18px]" strokeWidth={1.5} />
+          <UploadCloud className="w-[19px] h-[19px]" strokeWidth={2} />
         </Link>
 
         <button

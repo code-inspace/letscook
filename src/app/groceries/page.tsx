@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { ShoppingItem } from "@/features/groceries/types";
+import { CATEGORY_ICONS } from "@/features/groceries/categorizer";
 import {
   syncAndFetchShoppingList,
   getStoredShoppingItems,
@@ -28,6 +29,16 @@ import {
   formatShoppingListForExport,
 } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
+
+const CATEGORY_ORDER = [
+  "Fruits & Légumes",
+  "Viandes & Poissons",
+  "Produits Frais & Crèmerie",
+  "Boulangerie",
+  "Épicerie & Condiments",
+  "Boissons",
+  "Articles divers",
+];
 
 export default function GroceriesPage() {
   const router = useRouter();
@@ -160,6 +171,32 @@ export default function GroceriesPage() {
   const checkedCount = items.filter((i) => i.checked).length;
   const uncheckedItems = items.filter((i) => !i.checked);
   const checkedItems = items.filter((i) => i.checked);
+
+  // Group unchecked items by department category
+  const groupedUnchecked = React.useMemo(() => {
+    const groups: Record<string, ShoppingItem[]> = {};
+    for (const item of uncheckedItems) {
+      const cat = item.category || "Articles divers";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    }
+
+    const existingCats = Object.keys(groups);
+    existingCats.sort((a, b) => {
+      const idxA = CATEGORY_ORDER.indexOf(a);
+      const idxB = CATEGORY_ORDER.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    return existingCats.map((category) => ({
+      category,
+      icon: CATEGORY_ICONS[category] || "📦",
+      items: groups[category],
+    }));
+  }, [uncheckedItems]);
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] flex flex-col pb-32">
@@ -303,56 +340,74 @@ export default function GroceriesPage() {
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            {/* Unchecked Items */}
-            <div className="space-y-2">
-              {uncheckedItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all"
-                >
-                  <div
-                    onClick={() => handleToggle(item)}
-                    className="flex items-center gap-3 flex-1 cursor-pointer"
-                  >
-                    {/* Checkbox */}
-                    <div className="w-5 h-5 rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0" />
-
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-[#181A20]">
-                        {item.name}
-                      </span>
-                      {item.recipeTitle && (
-                        <span className="text-[10px] text-[#5DB534] font-medium flex items-center gap-1">
-                          <span>🍽️</span>
-                          <span className="truncate max-w-[180px]">
-                            {item.recipeTitle}
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
+          <div className="space-y-6">
+            {/* Unchecked Items Grouped by Category */}
+            {groupedUnchecked.map((group) => (
+              <div key={group.category} className="space-y-2">
+                {/* Department Header */}
+                <div className="flex items-center justify-between px-1">
                   <div className="flex items-center gap-2">
-                    {(item.amount || item.unit) && (
-                      <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
-                        {item.amount ? `${item.amount} ` : ""}
-                        {item.unit || ""}
-                      </span>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item)}
-                      className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
-                      title="Supprimer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <span className="text-base">{group.icon}</span>
+                    <h3 className="text-xs font-bold text-[#181A20] tracking-wide">
+                      {group.category}
+                    </h3>
                   </div>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {group.items.length}
+                  </span>
                 </div>
-              ))}
-            </div>
+
+                {/* Items in this category */}
+                <div className="space-y-2">
+                  {group.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all"
+                    >
+                      <div
+                        onClick={() => handleToggle(item)}
+                        className="flex items-center gap-3 flex-1 cursor-pointer"
+                      >
+                        {/* Checkbox */}
+                        <div className="w-5 h-5 rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0" />
+
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-[#181A20]">
+                            {item.name}
+                          </span>
+                          {item.recipeTitle && (
+                            <span className="text-[10px] text-[#5DB534] font-medium flex items-center gap-1">
+                              <span>🍽️</span>
+                              <span className="truncate max-w-[180px]">
+                                {item.recipeTitle}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {(item.amount || item.unit) && (
+                          <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
+                            {item.amount ? `${item.amount} ` : ""}
+                            {item.unit || ""}
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item)}
+                          className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
 
             {/* Checked Items */}
             {checkedItems.length > 0 && (

@@ -3,10 +3,22 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Heart, Clock, Utensils } from "lucide-react";
+import {
+  ChevronLeft,
+  Heart,
+  Clock,
+  Utensils,
+  Calendar as CalendarIcon,
+  ShoppingBag,
+  Check,
+  X,
+  Sparkles,
+} from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { Recipe } from "@/features/recipes/types";
 import { getStoredRecipes, fetchRecipesFromDb, toggleFavoriteInDb } from "@/features/recipes/actions";
+import { addOrUpdateMealPlan } from "@/features/calendar/actions";
+import { syncAndFetchShoppingList } from "@/features/groceries/actions";
 
 export default function RecipeDetailPage() {
   const params = useParams();
@@ -20,6 +32,16 @@ export default function RecipeDetailPage() {
   const [activeTab, setActiveTab] = useState<"ingredients" | "steps" | "nutrition">("ingredients");
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Planning Modal State
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
+  const [planDate, setPlanDate] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
+  const [planMealType, setPlanMealType] = useState<"lunch" | "dinner" | "breakfast" | "snack">("dinner");
+  const [planServings, setPlanServings] = useState<number>(2);
+  const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
+  const [planSuccessToast, setPlanSuccessToast] = useState<string | null>(null);
+
   useEffect(() => {
     if (!user?.id || !recipeId) return;
 
@@ -28,6 +50,7 @@ export default function RecipeDetailPage() {
     if (found) {
       setRecipe(found);
       setServings(found.servingsBase || 2);
+      setPlanServings(found.servingsBase || 2);
       setIsFavorite(Boolean(found.isFavorite));
       setIsLoading(false);
     }
@@ -38,6 +61,7 @@ export default function RecipeDetailPage() {
       if (dbFound) {
         setRecipe(dbFound);
         setServings(dbFound.servingsBase || 2);
+        setPlanServings(dbFound.servingsBase || 2);
         setIsFavorite(Boolean(dbFound.isFavorite));
       }
       setIsLoading(false);
@@ -74,8 +98,73 @@ export default function RecipeDetailPage() {
     setRecipe((prev) => (prev ? { ...prev, isFavorite: newFav } : null));
   };
 
+  const handleQuickDateSelect = (daysOffset: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysOffset);
+    setPlanDate(d.toISOString().split("T")[0]);
+  };
+
+  const handleConfirmPlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id || !recipe) return;
+
+    setIsSubmittingPlan(true);
+    try {
+      await addOrUpdateMealPlan(
+        {
+          recipeId: recipe.id,
+          recipeTitle: recipe.title,
+          recipeImageUrl: recipe.imageUrl,
+          date: planDate,
+          mealType: planMealType,
+          servings: planServings,
+        },
+        user.id
+      );
+
+      // Automatically synchronize shopping list with the new planned ingredients
+      await syncAndFetchShoppingList(user.id);
+
+      setIsPlanModalOpen(false);
+      setPlanSuccessToast("Recette ajoutée à votre calendrier et liste de courses !");
+      setTimeout(() => setPlanSuccessToast(null), 4000);
+    } catch (err) {
+      console.error("handleConfirmPlan error:", err);
+    } finally {
+      setIsSubmittingPlan(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FB] pb-32">
+      {/* Toast Notification */}
+      {planSuccessToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-md bg-zinc-900 text-white p-4 rounded-2xl shadow-xl border border-zinc-700/80 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-[#5DB534] flex items-center justify-center shrink-0">
+              <Check className="w-4 h-4 text-white" strokeWidth={3} />
+            </div>
+            <span className="text-xs font-bold leading-tight">
+              {planSuccessToast}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => router.push("/groceries")}
+              className="text-[11px] font-bold text-emerald-400 hover:underline px-1.5 py-1"
+            >
+              Courses
+            </button>
+            <button
+              onClick={() => router.push("/calendar")}
+              className="text-[11px] font-bold text-slate-300 hover:underline px-1.5 py-1"
+            >
+              Planning
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Header: Back & Favorite */}
       <header className="px-6 pt-7 pb-2 flex items-center justify-between z-20">
         <button
@@ -87,18 +176,30 @@ export default function RecipeDetailPage() {
           <ChevronLeft className="w-6 h-6" />
         </button>
 
-        <button
-          type="button"
-          onClick={toggleFavorite}
-          className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
-          title="Ajouter aux favoris"
-        >
-          <Heart
-            className={`w-5 h-5 transition-colors ${
-              isFavorite ? "fill-[#F43F5E] text-[#F43F5E]" : "text-slate-400"
-            }`}
-          />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsPlanModalOpen(true)}
+            className="px-3.5 py-2 rounded-full bg-white/90 backdrop-blur-md flex items-center gap-1.5 text-xs font-bold text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+            title="Planifier au calendrier"
+          >
+            <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
+            <span>Planifier</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleFavorite}
+            className="w-11 h-11 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+            title="Ajouter aux favoris"
+          >
+            <Heart
+              className={`w-5 h-5 transition-colors ${
+                isFavorite ? "fill-[#F43F5E] text-[#F43F5E]" : "text-slate-400"
+              }`}
+            />
+          </button>
+        </div>
       </header>
 
       {/* Hero Circular Dish Plate with Cutout */}
@@ -344,15 +445,183 @@ export default function RecipeDetailPage() {
         </div>
       )}
 
-      {/* Sticky Bottom CTA */}
-      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 w-[90%] max-w-[390px] z-50">
+      {/* Sticky Bottom Actions Bar */}
+      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 w-[92%] max-w-[420px] z-40 flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => setIsPlanModalOpen(true)}
+          className="flex-1 flex items-center justify-center gap-2 py-4 px-4 bg-white/95 backdrop-blur-md text-[#181A20] border border-slate-200/90 text-xs sm:text-sm font-extrabold rounded-full shadow-[0_8px_20px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all hover:bg-slate-50 cursor-pointer"
+        >
+          <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
+          <span>Planifier cette recette</span>
+        </button>
+
         <Link
           href={`/recipes/${recipe.id}/cook`}
-          className="w-full flex items-center justify-center py-4 px-6 bg-gradient-to-r from-[#5DB534] to-[#4FA12A] text-white text-sm font-extrabold rounded-full shadow-[0_8px_24px_rgba(93,181,52,0.45)] active:scale-[0.98] transition-all hover:brightness-105 tracking-wide cursor-pointer"
+          className="flex-1 flex items-center justify-center py-4 px-4 bg-gradient-to-r from-[#5DB534] to-[#4FA12A] text-white text-xs sm:text-sm font-extrabold rounded-full shadow-[0_8px_24px_rgba(93,181,52,0.45)] active:scale-[0.98] transition-all hover:brightness-105 tracking-wide cursor-pointer text-center"
         >
-          Cuisiner cette recette
+          Cuisiner
         </Link>
       </div>
+
+      {/* Planification Modal Sheet */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4">
+          <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 shadow-2xl animate-in slide-in-from-bottom-5 duration-200 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#5DB534] flex items-center justify-center">
+                  <CalendarIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#181A20]">
+                    Planifier cette recette
+                  </h3>
+                  <p className="text-[11px] text-[#8E929E]">
+                    Ajoute au calendrier & à la liste de courses
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsPlanModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmPlan} className="mt-5 space-y-4">
+              {/* Date Selection */}
+              <div>
+                <label className="block text-xs font-bold text-[#181A20] mb-2">
+                  Date du repas
+                </label>
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickDateSelect(0)}
+                    className={`py-2 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                      planDate === new Date().toISOString().split("T")[0]
+                        ? "bg-[#5DB534] text-white border-[#5DB534]"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    Aujourd'hui
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickDateSelect(1)}
+                    className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-all cursor-pointer"
+                  >
+                    Demain
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickDateSelect(2)}
+                    className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-all cursor-pointer"
+                  >
+                    Après-demain
+                  </button>
+                </div>
+                <input
+                  type="date"
+                  value={planDate}
+                  onChange={(e) => setPlanDate(e.target.value)}
+                  className="w-full bg-slate-50 px-4 py-2.5 rounded-xl text-xs font-semibold text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                  required
+                />
+              </div>
+
+              {/* Meal Type (Lunch vs Dinner) */}
+              <div>
+                <label className="block text-xs font-bold text-[#181A20] mb-2">
+                  Moment du repas
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPlanMealType("lunch")}
+                    className={`py-3 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      planMealType === "lunch"
+                        ? "bg-emerald-50 border-[#5DB534] text-[#5DB534] shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>☀️</span>
+                    <span>Déjeuner (Midi)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPlanMealType("dinner")}
+                    className={`py-3 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      planMealType === "dinner"
+                        ? "bg-emerald-50 border-[#5DB534] text-[#5DB534] shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>🌙</span>
+                    <span>Dîner (Soir)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Servings */}
+              <div>
+                <label className="block text-xs font-bold text-[#181A20] mb-2">
+                  Nombre de convives
+                </label>
+                <div className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setPlanServings((s) => Math.max(1, s - 1))}
+                    className="w-9 h-9 rounded-lg bg-white shadow-xs font-extrabold text-slate-700 hover:bg-slate-100 active:scale-95 flex items-center justify-center cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="text-sm font-extrabold text-[#181A20]">
+                    {planServings} personne{planServings > 1 ? "s" : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPlanServings((s) => s + 1)}
+                    className="w-9 h-9 rounded-lg bg-white shadow-xs font-extrabold text-slate-700 hover:bg-slate-100 active:scale-95 flex items-center justify-center cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Shopping auto-sync info box */}
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200/60 flex items-center gap-2.5">
+                <ShoppingBag className="w-4 h-4 text-[#5DB534] shrink-0" />
+                <p className="text-[11px] text-emerald-900 font-medium leading-tight">
+                  Les <strong>{recipe.ingredients?.length || 0} ingrédients</strong> seront automatiquement ajoutés à votre liste de courses triés par rayon.
+                </p>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={isSubmittingPlan}
+                className="w-full py-3.5 bg-[#5DB534] hover:bg-[#4FA12A] disabled:opacity-50 text-white font-extrabold text-xs rounded-2xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+              >
+                {isSubmittingPlan ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Confirmer la planification</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
