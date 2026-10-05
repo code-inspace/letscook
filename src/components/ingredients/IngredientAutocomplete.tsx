@@ -1,69 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Search, Sparkles, Check } from "lucide-react";
+import { Database, Sparkles } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { categorizeIngredient, CATEGORY_ICONS } from "@/features/groceries/categorizer";
-
-export const COMMON_INGREDIENTS: Array<{ name: string; category: string }> = [
-  { name: "Ail", category: "Épicerie & Condiments" },
-  { name: "Avocat", category: "Fruits & Légumes" },
-  { name: "Basilic", category: "Fruits & Légumes" },
-  { name: "Beurre", category: "Produits Frais & Crèmerie" },
-  { name: "Boeuf haché", category: "Viandes & Poissons" },
-  { name: "Bouillon de légumes", category: "Épicerie & Condiments" },
-  { name: "Bouillon de volaille", category: "Épicerie & Condiments" },
-  { name: "Carottes", category: "Fruits & Légumes" },
-  { name: "Champignons de Paris", category: "Fruits & Légumes" },
-  { name: "Chocolat noir", category: "Épicerie & Condiments" },
-  { name: "Citron", category: "Fruits & Légumes" },
-  { name: "Concentré de tomate", category: "Épicerie & Condiments" },
-  { name: "Courgettes", category: "Fruits & Légumes" },
-  { name: "Crème fraîche", category: "Produits Frais & Crèmerie" },
-  { name: "Crème liquide", category: "Produits Frais & Crèmerie" },
-  { name: "Cumin", category: "Épicerie & Condiments" },
-  { name: "Curry", category: "Épicerie & Condiments" },
-  { name: "Échalotes", category: "Fruits & Légumes" },
-  { name: "Emmental râpé", category: "Produits Frais & Crèmerie" },
-  { name: "Épinards", category: "Fruits & Légumes" },
-  { name: "Farine de blé", category: "Épicerie & Condiments" },
-  { name: "Gingembre frais", category: "Fruits & Légumes" },
-  { name: "Gruyère", category: "Produits Frais & Crèmerie" },
-  { name: "Huile d'olive", category: "Épicerie & Condiments" },
-  { name: "Huile de tournesol", category: "Épicerie & Condiments" },
-  { name: "Lait", category: "Produits Frais & Crèmerie" },
-  { name: "Lardons", category: "Viandes & Poissons" },
-  { name: "Miel", category: "Épicerie & Condiments" },
-  { name: "Moutarde de Dijon", category: "Épicerie & Condiments" },
-  { name: "Mozzarella", category: "Produits Frais & Crèmerie" },
-  { name: "Oeufs", category: "Produits Frais & Crèmerie" },
-  { name: "Oignons jaunes", category: "Fruits & Légumes" },
-  { name: "Oignons rouges", category: "Fruits & Légumes" },
-  { name: "Pain de mie", category: "Boulangerie" },
-  { name: "Pain frais", category: "Boulangerie" },
-  { name: "Paprika", category: "Épicerie & Condiments" },
-  { name: "Parmesan râpé", category: "Produits Frais & Crèmerie" },
-  { name: "Pâtes (Spaghetti)", category: "Épicerie & Condiments" },
-  { name: "Pâtes (Penne)", category: "Épicerie & Condiments" },
-  { name: "Pignons de pin", category: "Épicerie & Condiments" },
-  { name: "Poireaux", category: "Fruits & Légumes" },
-  { name: "Pois chiches", category: "Épicerie & Condiments" },
-  { name: "Poivron rouge", category: "Fruits & Légumes" },
-  { name: "Poivre noir", category: "Épicerie & Condiments" },
-  { name: "Pommes de terre", category: "Fruits & Légumes" },
-  { name: "Poulet (filets)", category: "Viandes & Poissons" },
-  { name: "Riz basmati", category: "Épicerie & Condiments" },
-  { name: "Riz rond", category: "Épicerie & Condiments" },
-  { name: "Salade verte", category: "Fruits & Légumes" },
-  { name: "Saumon (pavés)", category: "Viandes & Poissons" },
-  { name: "Sauce soja", category: "Épicerie & Condiments" },
-  { name: "Sel fin", category: "Épicerie & Condiments" },
-  { name: "Sucre en poudre", category: "Épicerie & Condiments" },
-  { name: "Thon en boîte", category: "Viandes & Poissons" },
-  { name: "Tomates", category: "Fruits & Légumes" },
-  { name: "Tomates concassées", category: "Épicerie & Condiments" },
-  { name: "Vinaigre balsamique", category: "Épicerie & Condiments" },
-];
 
 export interface IngredientSuggestion {
   name: string;
@@ -92,50 +32,64 @@ export function IngredientAutocomplete({
 }: IngredientAutocompleteProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [dbIngredients, setDbIngredients] = useState<IngredientSuggestion[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Load known ingredients from DB
+  // Charger les ingrédients directement depuis la table Supabase "ingredients"
   useEffect(() => {
-    async function loadDb() {
+    let isMounted = true;
+    async function loadIngredientsFromDb() {
       try {
+        setIsLoading(true);
         const supabase = createClient();
-        const { data, error } = await supabase.from("ingredients").select("name, category, image_url");
-        if (!error && data && Array.isArray(data)) {
-          setDbIngredients(
-            data.map((row) => ({
-              name: row.name,
+        const { data, error } = await supabase
+          .from("ingredients")
+          .select("name, category, image_url")
+          .order("name", { ascending: true })
+          .limit(1000);
+
+        if (!error && data && Array.isArray(data) && isMounted) {
+          const list: IngredientSuggestion[] = data
+            .filter((row) => row.name && row.name.trim().length > 0)
+            .map((row) => ({
+              name: row.name.trim(),
               category: row.category || categorizeIngredient(row.name),
               imageUrl: row.image_url || undefined,
-            }))
-          );
+            }));
+
+          // Dédoublonnage par nom
+          const uniqueMap = new Map<string, IngredientSuggestion>();
+          list.forEach((item) => {
+            const key = item.name.toLowerCase();
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, item);
+            }
+          });
+          setDbIngredients(Array.from(uniqueMap.values()));
         }
-      } catch {}
+      } catch (err) {
+        console.warn("Erreur chargement ingrédients depuis la BDD:", err);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
     }
-    loadDb();
+
+    loadIngredientsFromDb();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // Merge common ingredients with DB ingredients (avoiding duplicates)
-  const allSuggestions = useMemo(() => {
-    const map = new Map<string, IngredientSuggestion>();
-    COMMON_INGREDIENTS.forEach((item) => {
-      map.set(item.name.toLowerCase().trim(), item);
-    });
-    dbIngredients.forEach((item) => {
-      map.set(item.name.toLowerCase().trim(), item);
-    });
-    return Array.from(map.values());
-  }, [dbIngredients]);
-
-  // Filter matching suggestions
+  // Recherche dynamique / filtrage basé exclusivement sur les données de la BDD
   const matches = useMemo(() => {
     if (!value || value.trim().length < 1) return [];
     const query = value.toLowerCase().trim();
-    return allSuggestions
+    return dbIngredients
       .filter((item) => item.name.toLowerCase().includes(query))
-      .slice(0, 6);
-  }, [value, allSuggestions]);
+      .slice(0, 8);
+  }, [value, dbIngredients]);
 
-  // Handle outside click to close dropdown
+  // Fermer la dropdown lors d'un clic extérieur
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -174,9 +128,9 @@ export function IngredientAutocomplete({
 
       {isOpen && matches.length > 0 && (
         <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 py-1 max-h-56 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
-          <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-[#5DB534]" />
-            <span>Suggestions d'ingrédients</span>
+          <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-50">
+            <Database className="w-3 h-3 text-[#5DB534]" />
+            <span>Ingrédients de la base ({matches.length})</span>
           </div>
 
           {matches.map((item) => {

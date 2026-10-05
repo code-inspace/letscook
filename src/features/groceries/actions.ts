@@ -300,6 +300,25 @@ export async function addCustomShoppingItem(
         updated_at: new Date().toISOString(),
       },
     ]);
+
+    // Également insérer l'ingrédient dans la table public.ingredients si nouveau
+    const cleanName = newItem.name.trim();
+    if (cleanName) {
+      const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+      await supabase
+        .from("ingredients")
+        .upsert(
+          [
+            {
+              id: ingId,
+              name: cleanName,
+              category: newItem.category,
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          { onConflict: "id" }
+        );
+    }
   } catch (err) {
     console.warn("addCustomShoppingItem DB error:", err);
   }
