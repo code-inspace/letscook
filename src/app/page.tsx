@@ -69,21 +69,32 @@ export default function HomePage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   const [isLoadingRecipes, setIsLoadingRecipes] = useState<boolean>(true);
 
-  const loadData = useCallback(async () => {
-    if (!user?.id) {
-      setRecipes([]);
-      setMealPlans([]);
-      setIsLoadingRecipes(false);
-      return;
-    }
+  const isFetchingRef = React.useRef<boolean>(false);
+  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Deterministic recipe sorting function (newest first, then stable ID sort)
+  const sortRecipesStable = useCallback((list: Recipe[]): Recipe[] => {
+    return [...list].sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return a.id.localeCompare(b.id);
+    });
+  }, []);
+
+  const loadData = useCallback(async (silent = false) => {
+    if (!user?.id || isFetchingRef.current) return;
+    isFetchingRef.current = true;
 
     // 1. Instant local cache load
     const cachedRecipes = getStoredRecipes(user.id);
     const cachedPlans = getStoredMealPlans(user.id);
     if (cachedRecipes.length > 0) {
-      setRecipes(cachedRecipes);
+      setRecipes(sortRecipesStable(cachedRecipes));
       setMealPlans(cachedPlans);
       setIsLoadingRecipes(false);
+    } else if (!silent) {
+      setIsLoadingRecipes(true);
     }
 
     // 2. Database fetch from Supabase
@@ -92,14 +103,15 @@ export default function HomePage() {
         fetchRecipesFromDb(user.id),
         fetchMealPlansFromDb(user.id),
       ]);
-      setRecipes(dbRecipes);
+      setRecipes(sortRecipesStable(dbRecipes));
       setMealPlans(dbPlans);
     } catch (err) {
       console.warn("Erreur chargement données accueil:", err);
     } finally {
       setIsLoadingRecipes(false);
+      isFetchingRef.current = false;
     }
-  }, [user?.id]);
+  }, [user?.id, sortRecipesStable]);
 
   useEffect(() => {
     if (user?.id) {
@@ -108,12 +120,21 @@ export default function HomePage() {
       setIsLoadingRecipes(false);
     }
 
-    const handleUpdate = () => loadData();
-    window.addEventListener("letscook:recipes-updated", handleUpdate);
-    window.addEventListener("letscook:meal-plans-updated", handleUpdate);
+    const handleDebouncedUpdate = () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        loadData(true);
+      }, 300);
+    };
+
+    window.addEventListener("letscook:recipes-updated", handleDebouncedUpdate);
+    window.addEventListener("letscook:meal-plans-updated", handleDebouncedUpdate);
+    window.addEventListener("letscook:sync-completed", handleDebouncedUpdate);
     return () => {
-      window.removeEventListener("letscook:recipes-updated", handleUpdate);
-      window.removeEventListener("letscook:meal-plans-updated", handleUpdate);
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      window.removeEventListener("letscook:recipes-updated", handleDebouncedUpdate);
+      window.removeEventListener("letscook:meal-plans-updated", handleDebouncedUpdate);
+      window.removeEventListener("letscook:sync-completed", handleDebouncedUpdate);
     };
   }, [user?.id, authLoading, loadData]);
 
@@ -126,13 +147,15 @@ export default function HomePage() {
   }, [mealPlans, todayStr]);
 
   // Filter recipes by category
-  const filteredRecipes = recipes.filter((recipe) => {
-    return (
-      !selectedCategory ||
-      (recipe.category &&
-        recipe.category.toLowerCase().includes(selectedCategory.toLowerCase()))
-    );
-  });
+  const filteredRecipes = useMemo(() => {
+    return recipes.filter((recipe) => {
+      return (
+        !selectedCategory ||
+        (recipe.category &&
+          recipe.category.toLowerCase().includes(selectedCategory.toLowerCase()))
+      );
+    });
+  }, [recipes, selectedCategory]);
 
   const featuredRecipe = filteredRecipes[0] || null;
   const remainingRecipes = filteredRecipes.slice(1);

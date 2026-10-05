@@ -1,8 +1,9 @@
 import { createClient } from "@/utils/supabase/client";
-import { getStoredRecipes, saveStoredRecipes, saveRecipeToDb, fetchRecipesFromDb } from "@/features/recipes/actions";
+import { getStoredRecipes, saveStoredRecipes, fetchRecipesFromDb } from "@/features/recipes/actions";
 import { getStoredMealPlans, saveStoredMealPlans, fetchMealPlansFromDb } from "@/features/calendar/actions";
 import { getStoredShoppingItems, saveStoredShoppingItems, fetchCustomShoppingItemsFromDb } from "@/features/groceries/actions";
 import { categorizeIngredient } from "@/features/groceries/categorizer";
+import { encryptText } from "@/lib/crypto/encryption";
 
 export interface SyncResult {
   success: boolean;
@@ -14,11 +15,12 @@ export interface SyncResult {
   error?: string;
 }
 
+let isSyncInProgress = false;
+
 /**
  * Scans all local data on the device (localStorage) and synchronizes bidirectionally with Supabase.
- * - Pushes un-synced local recipes, meal plans, and custom shopping items to Supabase.
- * - Populates the ingredients table from all recipes.
- * - Pulls latest remote cloud data and merges into local cache.
+ * - Performs quiet bulk upserts to Supabase without firing intermediate event loops.
+ * - Emits a single notification at the end to keep the UI perfectly stable and responsive.
  */
 export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncResult> {
   if (!userId || typeof window === "undefined") {
@@ -33,6 +35,18 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
     };
   }
 
+  if (isSyncInProgress) {
+    return {
+      success: true,
+      recipesCount: getStoredRecipes(userId).length,
+      mealPlansCount: getStoredMealPlans(userId).length,
+      shoppingCount: getStoredShoppingItems(userId).length,
+      ingredientsCount: 0,
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
+  isSyncInProgress = true;
   const supabase = createClient();
   let recipesCount = 0;
   let mealPlansCount = 0;
@@ -40,15 +54,13 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
   let ingredientsCount = 0;
 
   try {
-    // 1. SCAN AND SYNC RECIPES
+    // 1. SCAN AND BATCH SYNC RECIPES
     const localRecipes = getStoredRecipes(userId);
-    
-    // Check also if there are any orphaned recipes from guest or other storage keys
     const allKeys = Object.keys(localStorage);
-    const recipeKeys = allKeys.filter(
+    const orphanRecipeKeys = allKeys.filter(
       (k) => k.startsWith("letscook_recipes_") && k !== `letscook_recipes_${userId}`
     );
-    for (const key of recipeKeys) {
+    for (const key of orphanRecipeKeys) {
       try {
         const raw = localStorage.getItem(key);
         if (raw) {
@@ -64,27 +76,48 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       } catch {}
     }
 
-    // Push local recipes to Supabase
+    // Direct encrypted upsert without firing individual intermediate events
     for (const recipe of localRecipes) {
       try {
-        await saveRecipeToDb(recipe, userId);
+        const encryptedTitle = await encryptText(recipe.title);
+        const encryptedIngredients = await encryptText(JSON.stringify(recipe.ingredients || []));
+        const encryptedSteps = await encryptText(JSON.stringify(recipe.steps || []));
+
+        await supabase.from("recipes").upsert([
+          {
+            id: recipe.id,
+            user_id: userId,
+            title: encryptedTitle,
+            subtitle: recipe.subtitle,
+            category: recipe.category,
+            image_url: recipe.imageUrl,
+            prep_time_minutes: recipe.prepTimeMinutes,
+            difficulty: recipe.difficulty,
+            rating: recipe.rating,
+            servings_base: recipe.servingsBase,
+            spice_level: recipe.spiceLevel,
+            utensils: recipe.utensils,
+            nutrition: recipe.nutrition,
+            allergens: recipe.allergens,
+            ingredients: encryptedIngredients,
+            steps: encryptedSteps,
+            is_favorite: Boolean(recipe.isFavorite),
+            updated_at: new Date().toISOString(),
+          },
+        ], { onConflict: "id" });
       } catch (err) {
-        console.warn("Error pushing local recipe to Supabase:", err);
+        console.warn("Error uploading recipe to Supabase:", err);
       }
     }
 
-    // Fetch refreshed list from Supabase
-    const remoteRecipes = await fetchRecipesFromDb(userId);
-    recipesCount = remoteRecipes.length;
-
-    // 2. SCAN AND SYNC INGREDIENTS TABLE (From all recipes)
+    // 2. SCAN AND SYNC INGREDIENTS TABLE
     const distinctIngredients = new Map<string, { id: string; name: string; category: string; imageUrl?: string }>();
     for (const recipe of localRecipes) {
       if (recipe.ingredients && Array.isArray(recipe.ingredients)) {
         for (const ing of recipe.ingredients) {
           if (ing.name && ing.name.trim()) {
             const cleanName = ing.name.trim();
-            const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+            const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
             if (!distinctIngredients.has(ingId)) {
               distinctIngredients.set(ingId, {
                 id: ingId,
@@ -98,24 +131,20 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       }
     }
 
-    for (const ing of Array.from(distinctIngredients.values())) {
-      try {
-        await supabase.from("ingredients").upsert([
-          {
-            id: ing.id,
-            name: ing.name,
-            category: ing.category,
-            image_url: ing.imageUrl || null,
-            updated_at: new Date().toISOString(),
-          }
-        ], { onConflict: "id" });
-      } catch (err) {
-        console.warn("Error upserting ingredient:", err);
-      }
-    }
-    ingredientsCount = distinctIngredients.size;
+    const ingredientsPayload = Array.from(distinctIngredients.values()).map((ing) => ({
+      id: ing.id,
+      name: ing.name,
+      category: ing.category,
+      image_url: ing.imageUrl || null,
+      updated_at: new Date().toISOString(),
+    }));
 
-    // 3. SCAN AND SYNC MEAL PLANS (CALENDAR)
+    if (ingredientsPayload.length > 0) {
+      await supabase.from("ingredients").upsert(ingredientsPayload, { onConflict: "id" });
+    }
+    ingredientsCount = ingredientsPayload.length;
+
+    // 3. SCAN AND BATCH SYNC MEAL PLANS
     const localPlans = getStoredMealPlans(userId);
     const planKeys = allKeys.filter(
       (k) => k.startsWith("letscook_meal_plans_") && k !== `letscook_meal_plans_${userId}`
@@ -136,58 +165,57 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       } catch {}
     }
 
-    // Push each local plan to Supabase
-    for (const plan of localPlans) {
-      try {
-        const payload = {
-          id: plan.id,
-          user_id: userId,
-          recipe_id: plan.recipeId,
-          recipe_title: plan.recipeTitle,
-          recipe_image_url: plan.recipeImageUrl || null,
-          date: plan.date,
-          meal_type: plan.mealType || "dinner",
-          servings: plan.servings || 2,
-          notes: plan.notes || null,
-          updated_at: new Date().toISOString(),
-        };
-        await supabase.from("meal_plans").upsert([payload], { onConflict: "id" });
-      } catch (err) {
-        console.warn("Error pushing meal plan to Supabase:", err);
-      }
+    const plansPayload = localPlans.map((plan) => ({
+      id: plan.id,
+      user_id: userId,
+      recipe_id: plan.recipeId,
+      recipe_title: plan.recipeTitle,
+      recipe_image_url: plan.recipeImageUrl || null,
+      date: plan.date,
+      meal_type: plan.mealType || "dinner",
+      servings: plan.servings || 2,
+      notes: plan.notes || null,
+      updated_at: new Date().toISOString(),
+    }));
+
+    if (plansPayload.length > 0) {
+      await supabase.from("meal_plans").upsert(plansPayload, { onConflict: "id" });
     }
 
-    const remotePlans = await fetchMealPlansFromDb(userId);
-    mealPlansCount = remotePlans.length;
-
-    // 4. SCAN AND SYNC SHOPPING ITEMS
+    // 4. SCAN AND BATCH SYNC SHOPPING ITEMS
     const localShopping = getStoredShoppingItems(userId);
-    const customItems = localShopping.filter((i) => i.isCustom);
-    for (const item of customItems) {
-      try {
-        await supabase.from("shopping_items").upsert([
-          {
-            id: item.id,
-            user_id: userId,
-            name: item.name,
-            amount: item.amount || null,
-            unit: item.unit || null,
-            checked: Boolean(item.checked),
-            is_custom: true,
-            category: item.category || categorizeIngredient(item.name),
-            updated_at: new Date().toISOString(),
-          },
-        ], { onConflict: "id" });
-      } catch (err) {
-        console.warn("Error pushing shopping item to Supabase:", err);
-      }
+    const shoppingPayload = localShopping.map((item) => ({
+      id: item.id,
+      user_id: userId,
+      name: item.name,
+      amount: item.amount || null,
+      unit: item.unit || null,
+      checked: Boolean(item.checked),
+      is_custom: Boolean(item.isCustom),
+      category: item.category || categorizeIngredient(item.name),
+      updated_at: new Date().toISOString(),
+    }));
+
+    if (shoppingPayload.length > 0) {
+      await supabase.from("shopping_items").upsert(shoppingPayload, { onConflict: "id" });
     }
 
-    const remoteCustomShopping = await fetchCustomShoppingItemsFromDb(userId);
-    shoppingCount = remoteCustomShopping.length;
+    // 5. REFRESH LOCAL CACHE QUIETLY
+    const [remoteRecipes, remotePlans, remoteShopping] = await Promise.all([
+      fetchRecipesFromDb(userId),
+      fetchMealPlansFromDb(userId),
+      fetchCustomShoppingItemsFromDb(userId),
+    ]);
+
+    recipesCount = remoteRecipes.length;
+    mealPlansCount = remotePlans.length;
+    shoppingCount = remoteShopping.length;
 
     const nowIso = new Date().toISOString();
     localStorage.setItem(`letscook_last_sync_${userId}`, nowIso);
+
+    // Dispatch a SINGLE clean update event at the end
+    window.dispatchEvent(new CustomEvent("letscook:sync-completed"));
 
     return {
       success: true,
@@ -208,5 +236,7 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       syncedAt: new Date().toISOString(),
       error: err.message || "Erreur de synchronisation",
     };
+  } finally {
+    isSyncInProgress = false;
   }
 }

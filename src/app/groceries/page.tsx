@@ -59,17 +59,20 @@ export default function GroceriesPage() {
   // Expandable Accordion for purchased items
   const [isPurchasedExpanded, setIsPurchasedExpanded] = useState<boolean>(true);
 
-  const loadGroceries = useCallback(async () => {
-    if (!user?.id) {
-      setIsLoading(false);
-      return;
-    }
+  const isSyncingGroceriesRef = React.useRef<boolean>(false);
+  const debounceGroceriesTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const loadGroceries = useCallback(async (silent = false) => {
+    if (!user?.id || isSyncingGroceriesRef.current) return;
+    isSyncingGroceriesRef.current = true;
 
     // 1. Instant local load
     const cached = getStoredShoppingItems(user.id);
     if (cached.length > 0) {
       setItems(cached);
       setIsLoading(false);
+    } else if (!silent) {
+      setIsLoading(true);
     }
 
     // 2. Full synchronization with database upcoming meal plans + custom items
@@ -80,23 +83,40 @@ export default function GroceriesPage() {
       console.warn("loadGroceries sync error:", err);
     } finally {
       setIsLoading(false);
+      isSyncingGroceriesRef.current = false;
     }
   }, [user?.id]);
 
   useEffect(() => {
     loadGroceries();
 
-    const handleUpdate = () => {
-      if (user?.id) {
-        setItems(getStoredShoppingItems(user.id));
-      }
+    const handleDebouncedUpdate = () => {
+      if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
+      debounceGroceriesTimerRef.current = setTimeout(() => {
+        if (user?.id) {
+          const cached = getStoredShoppingItems(user.id);
+          if (cached.length > 0) {
+            setItems(cached);
+          }
+        }
+      }, 300);
     };
 
-    window.addEventListener("letscook:groceries-updated", handleUpdate);
-    window.addEventListener("letscook:meal-plans-updated", loadGroceries);
+    const handleMealPlansUpdate = () => {
+      if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
+      debounceGroceriesTimerRef.current = setTimeout(() => {
+        loadGroceries(true);
+      }, 300);
+    };
+
+    window.addEventListener("letscook:groceries-updated", handleDebouncedUpdate);
+    window.addEventListener("letscook:meal-plans-updated", handleMealPlansUpdate);
+    window.addEventListener("letscook:sync-completed", handleMealPlansUpdate);
     return () => {
-      window.removeEventListener("letscook:groceries-updated", handleUpdate);
-      window.removeEventListener("letscook:meal-plans-updated", loadGroceries);
+      if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
+      window.removeEventListener("letscook:groceries-updated", handleDebouncedUpdate);
+      window.removeEventListener("letscook:meal-plans-updated", handleMealPlansUpdate);
+      window.removeEventListener("letscook:sync-completed", handleMealPlansUpdate);
     };
   }, [loadGroceries, user?.id]);
 
