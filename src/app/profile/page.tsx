@@ -2,10 +2,21 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { LogOut, ShieldCheck, ChefHat, UploadCloud, ArrowRight, Sparkles } from "lucide-react";
+import {
+  LogOut,
+  ShieldCheck,
+  ChefHat,
+  UploadCloud,
+  ArrowRight,
+  Sparkles,
+  RefreshCw,
+  Cloud,
+  CheckCircle2,
+} from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { signOutUser } from "@/features/auth/actions";
 import { getStoredRecipes, fetchRecipesFromDb } from "@/features/recipes/actions";
+import { syncAllLocalDataToSupabase, SyncResult } from "@/features/sync/syncService";
 import { BottomNav } from "@/components/layout/BottomNav";
 
 function getInitials(name?: string, email?: string): string {
@@ -30,6 +41,8 @@ function getInitials(name?: string, email?: string): string {
 export default function ProfilePage() {
   const { user } = useAuth();
   const [recipesCount, setRecipesCount] = useState<number>(0);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<SyncResult | null>(null);
 
   useEffect(() => {
     if (user?.id) {
@@ -38,6 +51,20 @@ export default function ProfilePage() {
       fetchRecipesFromDb(user.id).then((list) => setRecipesCount(list.length));
     }
   }, [user?.id]);
+
+  const handleManualSync = async () => {
+    if (!user?.id || isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const res = await syncAllLocalDataToSupabase(user.id);
+      setSyncStatus(res);
+      setRecipesCount(res.recipesCount);
+    } catch (err) {
+      console.warn("Manual sync error:", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const name = user?.name || user?.email?.split("@")[0] || "Chef Cuisinier";
   const email = user?.email || "";
@@ -78,8 +105,40 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Cloud Synchronization Card */}
+      <div className="mt-4 p-4 rounded-3xl bg-emerald-50/70 border border-emerald-100 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+            <Cloud className="w-5 h-5" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-extrabold text-[#181A20] flex items-center gap-1.5">
+              <span>Cloud Supabase</span>
+              {syncStatus?.success && (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              )}
+            </span>
+            <span className="text-[10px] text-emerald-800 font-medium mt-0.5">
+              {syncStatus
+                ? `Synchro : ${syncStatus.recipesCount} recettes • ${syncStatus.mealPlansCount} repas • ${syncStatus.shoppingCount} courses`
+                : "Synchroniser vos données locales vers le cloud"}
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleManualSync}
+          disabled={isSyncing}
+          className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-[#181A20] border border-emerald-200 text-xs font-bold shadow-2xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-[#5DB534] ${isSyncing ? "animate-spin" : ""}`} />
+          <span>{isSyncing ? "En cours..." : "Synchroniser"}</span>
+        </button>
+      </div>
+
       {/* Import Recipes Action Card */}
-      <div className="mt-6">
+      <div className="mt-4">
         <Link
           href="/import"
           className="w-full py-4 px-4.5 bg-gradient-to-r from-[#181A20] to-[#2C303B] text-white rounded-3xl flex items-center justify-between shadow-md active:scale-98 transition-all cursor-pointer group"
