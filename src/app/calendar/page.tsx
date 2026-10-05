@@ -165,6 +165,11 @@ export default function CalendarPage() {
     setSelectedPlanDetails(null);
   };
 
+  const recipeMap = useMemo(
+    () => new Map(recipes.map((r) => [r.id, r])),
+    [recipes]
+  );
+
   // Group meal plans by date
   const mealPlansByDate = useMemo(() => {
     const map = new Map<string, MealPlan[]>();
@@ -289,7 +294,7 @@ export default function CalendarPage() {
                       key={dateKey}
                       ref={isToday ? todayRef : null}
                       onClick={() => handleDayClick(dateKey)}
-                      className={`min-h-[84px] rounded-2xl p-1.5 flex flex-col justify-between transition-all cursor-pointer border ${
+                      className={`min-h-[92px] rounded-2xl p-1.5 flex flex-col justify-between transition-all cursor-pointer border ${
                         isToday
                           ? "bg-emerald-50/60 border-[#5DB534]/50 ring-2 ring-[#5DB534]/20 shadow-xs"
                           : "bg-white hover:border-slate-300 border-slate-100 shadow-2xs"
@@ -308,32 +313,49 @@ export default function CalendarPage() {
                         </span>
                       </div>
 
-                      {/* Meals planned on this day */}
+                      {/* Meals planned on this day with Miniature Recipe Images */}
                       <div className="space-y-1 mt-1 flex-1">
                         {dayPlans.map((plan) => {
                           const isLunch = plan.mealType === "lunch";
                           const isDinner = plan.mealType === "dinner";
+                          const planRecipe = recipeMap.get(plan.recipeId);
+                          const imageUrl = plan.recipeImageUrl || planRecipe?.imageUrl;
 
                           return (
                             <div
                               key={plan.id}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedPlanDetails(plan);
+                                setSelectedPlanDetails({
+                                  ...plan,
+                                  recipeImageUrl: imageUrl,
+                                });
                               }}
-                              className={`px-1.5 py-0.5 rounded-lg text-[9px] font-bold truncate flex items-center gap-1 shadow-2xs active:scale-95 transition-transform border ${
+                              className={`p-1 rounded-xl text-[9px] font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all border ${
                                 isLunch
-                                  ? "bg-amber-50 text-amber-900 border-amber-200/80"
+                                  ? "bg-amber-50/90 text-amber-950 border-amber-200/80 hover:bg-amber-100"
                                   : isDinner
-                                  ? "bg-emerald-50 text-emerald-900 border-emerald-200/80"
-                                  : "bg-blue-50 text-blue-900 border-blue-200/80"
+                                  ? "bg-emerald-50/90 text-emerald-950 border-emerald-200/80 hover:bg-emerald-100"
+                                  : "bg-blue-50/90 text-blue-950 border-blue-200/80 hover:bg-blue-100"
                               }`}
-                              title={plan.recipeTitle}
+                              title={`${plan.recipeTitle} (${isLunch ? "Midi" : isDinner ? "Soir" : "Matin"})`}
                             >
-                              <span className="shrink-0 text-[10px]">
-                                {isLunch ? "☀️" : isDinner ? "🌙" : "☕"}
-                              </span>
-                              <span className="truncate">{plan.recipeTitle}</span>
+                              {/* Miniature Recipe Image Thumbnail */}
+                              <div className="w-5 h-5 rounded-lg overflow-hidden bg-slate-200 shrink-0 border border-white/80 shadow-2xs">
+                                {imageUrl ? (
+                                  <img
+                                    src={imageUrl}
+                                    alt={plan.recipeTitle}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-[8px] bg-slate-100">
+                                    {isLunch ? "☀️" : isDinner ? "🌙" : "☕"}
+                                  </div>
+                                )}
+                              </div>
+
+                              <span className="truncate flex-1 leading-tight">{plan.recipeTitle}</span>
                             </div>
                           );
                         })}
