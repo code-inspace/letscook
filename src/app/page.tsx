@@ -20,9 +20,6 @@ import { Recipe } from "@/features/recipes/types";
 import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
 import { MealPlan } from "@/features/calendar/types";
 import { fetchMealPlansFromDb, getStoredMealPlans } from "@/features/calendar/actions";
-import { Header } from "@/components/home/Header";
-import { HeroTitle } from "@/components/home/HeroTitle";
-import { heroConfig } from "@/lib/config";
 import { BottomNav } from "@/components/layout/BottomNav";
 
 const DEFAULT_CATEGORIES = [
@@ -141,15 +138,9 @@ export default function HomePage() {
   const remainingRecipes = filteredRecipes.slice(1);
 
   return (
-    <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] pb-28 bg-white relative">
-      {/* 1. Header with Authenticated User Profile */}
-      <Header user={user} />
-
-      {/* 2. Hero Catchphrase */}
-      <HeroTitle config={heroConfig} />
-
-      {/* 3. Search Bar Redirect Button */}
-      <div className="mt-4 px-5">
+    <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] pt-6 pb-28 bg-white relative">
+      {/* Search Bar Redirect Button */}
+      <div className="px-5">
         <button
           type="button"
           onClick={() => router.push("/search")}

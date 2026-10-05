@@ -56,9 +56,23 @@ export function saveStoredExcludedIngredients(keys: string[], userId: string): v
   }
 }
 
+export function normalizeIngredientKey(name: string): string {
+  if (!name) return "";
+  let s = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  // Remove leading articles (un, une, des, du, de, d', le, la, les)
+  s = s.replace(/^(un|une|des|du|de|la|le|les|d'|d’)\s+/i, "");
+  // Remove trailing plurals 's' or 'x'
+  s = s.replace(/(s|x)$/i, "");
+  return s.trim();
+}
+
 /**
  * Computes and synchronizes the full shopping list:
- * 1. Automatic upcoming meal plan ingredients (date >= today, not explicitly deleted)
+ * 1. Automatic upcoming meal plan ingredients (date >= today, mutualized across recipes)
  * 2. Custom manual ingredients added by the user
  */
 export async function syncAndFetchShoppingList(userId: string): Promise<ShoppingItem[]> {
@@ -84,39 +98,84 @@ export async function syncAndFetchShoppingList(userId: string): Promise<Shopping
     existingLocalItems.map((item) => [item.id, item.checked])
   );
 
-  const autoItems: ShoppingItem[] = [];
+  // Aggregation Map by normalized key (e.g. "carotte" -> merged item with 10 + 5 = 15 carottes)
+  const aggregatedMap = new Map<string, ShoppingItem>();
 
   for (const plan of upcomingPlans) {
     const recipe = recipeMap.get(plan.recipeId);
     if (!recipe || !recipe.ingredients) continue;
 
     for (const ing of recipe.ingredients) {
-      const uniqueKey = `${plan.id}_${ing.name.toLowerCase().trim()}`;
-      if (excludedKeys.has(uniqueKey)) continue;
+      const normKey = normalizeIngredientKey(ing.name);
+      const uniqueKey = `${plan.id}_${normKey}`;
+      const legacyKey = `${plan.id}_${ing.name.toLowerCase().trim()}`;
 
-      const itemId = `auto_${plan.id}_${ing.id || Math.random().toString(36).substring(2, 7)}`;
-      const isChecked = checkStatusMap.get(itemId) ?? false;
+      if (excludedKeys.has(uniqueKey) || excludedKeys.has(legacyKey)) continue;
+
       const deptCategory = categorizeIngredient(ing.name);
-
-      autoItems.push({
-        id: itemId,
-        userId,
-        name: ing.name,
-        amount: ing.amount,
-        unit: ing.unit,
-        checked: isChecked,
-        isCustom: false,
+      const recipeContribution = {
         recipeId: recipe.id,
         recipeTitle: recipe.title,
+        recipeImageUrl: recipe.imageUrl,
+        amount: ing.amount || null,
+        unit: ing.unit || null,
         mealPlanId: plan.id,
         mealPlanDate: plan.date,
-        category: deptCategory,
-        createdAt: plan.createdAt,
-      });
+      };
+
+      if (aggregatedMap.has(normKey)) {
+        const existing = aggregatedMap.get(normKey)!;
+        if (typeof existing.amount === "number" && typeof ing.amount === "number") {
+          existing.amount = Math.round((existing.amount + ing.amount) * 100) / 100;
+        } else if (typeof ing.amount === "number" && existing.amount === null) {
+          existing.amount = ing.amount;
+        }
+
+        if (!existing.unit && ing.unit) {
+          existing.unit = ing.unit;
+        }
+
+        if (!existing.recipeSources) {
+          existing.recipeSources = [];
+        }
+
+        // Add if not duplicate source
+        const hasSource = existing.recipeSources.some(
+          (s) => s.mealPlanId === plan.id && s.recipeId === recipe.id
+        );
+        if (!hasSource) {
+          existing.recipeSources.push(recipeContribution);
+        }
+      } else {
+        const itemId = `auto_${normKey}`;
+        const isChecked = checkStatusMap.get(itemId) ?? false;
+
+        aggregatedMap.set(normKey, {
+          id: itemId,
+          userId,
+          name: ing.name,
+          normalizedKey: normKey,
+          amount: ing.amount || null,
+          unit: ing.unit || null,
+          checked: isChecked,
+          isCustom: false,
+          recipeId: recipe.id,
+          recipeTitle: recipe.title,
+          recipeImageUrl: recipe.imageUrl,
+          recipeSources: [recipeContribution],
+          mealPlanId: plan.id,
+          mealPlanDate: plan.date,
+          category: deptCategory,
+          imageUrl: ing.imageUrl,
+          createdAt: plan.createdAt,
+        });
+      }
     }
   }
 
-  // 3. Merge auto items and custom items
+  const autoItems = Array.from(aggregatedMap.values());
+
+  // 3. Merge mutualized auto items and custom items
   const fullList = [...autoItems, ...customItems];
   saveStoredShoppingItems(fullList, userId);
   return fullList;
@@ -235,12 +294,30 @@ export async function deleteShoppingItemFromList(
 ): Promise<void> {
   if (!userId) return;
 
-  // 1. If auto recipe item: add to excluded items set so it stays removed
-  if (!item.isCustom && item.mealPlanId) {
-    const uniqueKey = `${item.mealPlanId}_${item.name.toLowerCase().trim()}`;
+  // 1. If auto recipe item: add all contributing recipe keys to excluded items
+  if (!item.isCustom) {
     const excluded = getStoredExcludedIngredients(userId);
-    if (!excluded.includes(uniqueKey)) {
-      saveStoredExcludedIngredients([...excluded, uniqueKey], userId);
+    const newExcluded = [...excluded];
+    const normKey = item.normalizedKey || normalizeIngredientKey(item.name);
+
+    if (item.recipeSources && item.recipeSources.length > 0) {
+      for (const source of item.recipeSources) {
+        if (source.mealPlanId) {
+          const k1 = `${source.mealPlanId}_${normKey}`;
+          const k2 = `${source.mealPlanId}_${item.name.toLowerCase().trim()}`;
+          if (!newExcluded.includes(k1)) newExcluded.push(k1);
+          if (!newExcluded.includes(k2)) newExcluded.push(k2);
+        }
+      }
+    } else if (item.mealPlanId) {
+      const k1 = `${item.mealPlanId}_${normKey}`;
+      const k2 = `${item.mealPlanId}_${item.name.toLowerCase().trim()}`;
+      if (!newExcluded.includes(k1)) newExcluded.push(k1);
+      if (!newExcluded.includes(k2)) newExcluded.push(k2);
+    }
+
+    if (newExcluded.length > excluded.length) {
+      saveStoredExcludedIngredients(newExcluded, userId);
     }
   }
 

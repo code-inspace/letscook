@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -17,7 +17,7 @@ import {
   Apple,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { ShoppingItem } from "@/features/groceries/types";
+import { ShoppingItem, RecipeContribution } from "@/features/groceries/types";
 import { CATEGORY_ICONS } from "@/features/groceries/categorizer";
 import {
   syncAndFetchShoppingList,
@@ -51,6 +51,10 @@ export default function GroceriesPage() {
   const [newItemUnit, setNewItemUnit] = useState<string>("");
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [exportNotice, setExportNotice] = useState<string>("");
+
+  // Recipe Filter State
+  const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
+  const [hasInitializedFilter, setHasInitializedFilter] = useState<boolean>(false);
 
   const loadGroceries = useCallback(async () => {
     if (!user?.id) {
@@ -91,6 +95,51 @@ export default function GroceriesPage() {
     };
   }, [loadGroceries, user?.id]);
 
+  // Extract all distinct contributing recipes from shopping items
+  const contributingRecipes = useMemo(() => {
+    const map = new Map<string, { id: string; title: string; imageUrl?: string }>();
+    items.forEach((item) => {
+      if (item.recipeSources && item.recipeSources.length > 0) {
+        item.recipeSources.forEach((src) => {
+          if (src.recipeId && !map.has(src.recipeId)) {
+            map.set(src.recipeId, {
+              id: src.recipeId,
+              title: src.recipeTitle,
+              imageUrl: src.recipeImageUrl,
+            });
+          }
+        });
+      } else if (item.recipeId && !map.has(item.recipeId)) {
+        map.set(item.recipeId, {
+          id: item.recipeId,
+          title: item.recipeTitle || "Recette",
+          imageUrl: item.recipeImageUrl,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [items]);
+
+  // Initialize all contributing recipes as selected by default
+  useEffect(() => {
+    if (contributingRecipes.length > 0 && !hasInitializedFilter) {
+      setSelectedRecipeIds(new Set(contributingRecipes.map((r) => r.id)));
+      setHasInitializedFilter(true);
+    }
+  }, [contributingRecipes, hasInitializedFilter]);
+
+  const toggleRecipeFilter = (recipeId: string) => {
+    setSelectedRecipeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recipeId)) {
+        next.delete(recipeId);
+      } else {
+        next.add(recipeId);
+      }
+      return next;
+    });
+  };
+
   const handleToggle = async (item: ShoppingItem) => {
     if (!user?.id) return;
     const newChecked = !item.checked;
@@ -130,9 +179,50 @@ export default function GroceriesPage() {
     await clearCompletedShoppingItems(user.id);
   };
 
+  // Filter items based on active recipe filter selection & re-calculate quantities dynamically
+  const displayItems = useMemo(() => {
+    return items
+      .map((item) => {
+        if (item.isCustom) return item;
+
+        // Auto item with multiple recipe sources
+        if (item.recipeSources && item.recipeSources.length > 0) {
+          const activeSources = item.recipeSources.filter((s) =>
+            selectedRecipeIds.has(s.recipeId)
+          );
+
+          if (activeSources.length === 0) return null;
+
+          // Recompute total amount for active sources
+          let sumAmount: number | null = null;
+          let hasAmounts = false;
+          activeSources.forEach((s) => {
+            if (typeof s.amount === "number") {
+              sumAmount = (sumAmount || 0) + s.amount;
+              hasAmounts = true;
+            }
+          });
+
+          return {
+            ...item,
+            amount: hasAmounts && sumAmount !== null ? Math.round(sumAmount * 100) / 100 : item.amount,
+            recipeSources: activeSources,
+          };
+        }
+
+        // Single recipe item
+        if (item.recipeId && !selectedRecipeIds.has(item.recipeId)) {
+          return null;
+        }
+
+        return item;
+      })
+      .filter((item): item is ShoppingItem => item !== null);
+  }, [items, selectedRecipeIds]);
+
   // Export to Apple Reminders (Rappels iOS) / Share Sheet
   const handleExportToAppleReminders = async () => {
-    const formattedText = formatShoppingListForExport(items);
+    const formattedText = formatShoppingListForExport(displayItems);
 
     if (navigator.share) {
       try {
@@ -144,16 +234,14 @@ export default function GroceriesPage() {
         setTimeout(() => setExportNotice(""), 3000);
         return;
       } catch (err) {
-        // User dismissed share sheet or unsupported
+        // User dismissed share sheet
       }
     }
 
-    // Fallback: Copy to clipboard and open Apple Reminders scheme
     navigator.clipboard.writeText(formattedText);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2500);
 
-    // Attempt to open Apple Reminders / Shortcuts scheme
     try {
       window.location.href = `shortcuts://run-shortcut?name=Courses&input=${encodeURIComponent(
         formattedText
@@ -162,18 +250,18 @@ export default function GroceriesPage() {
   };
 
   const handleCopyText = () => {
-    const formattedText = formatShoppingListForExport(items);
+    const formattedText = formatShoppingListForExport(displayItems);
     navigator.clipboard.writeText(formattedText);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const checkedCount = items.filter((i) => i.checked).length;
-  const uncheckedItems = items.filter((i) => !i.checked);
-  const checkedItems = items.filter((i) => i.checked);
+  const checkedCount = displayItems.filter((i) => i.checked).length;
+  const uncheckedItems = displayItems.filter((i) => !i.checked);
+  const checkedItems = displayItems.filter((i) => i.checked);
 
   // Group unchecked items by department category
-  const groupedUnchecked = React.useMemo(() => {
+  const groupedUnchecked = useMemo(() => {
     const groups: Record<string, ShoppingItem[]> = {};
     for (const item of uncheckedItems) {
       const cat = item.category || "Articles divers";
@@ -217,7 +305,7 @@ export default function GroceriesPage() {
             <span>Liste de courses</span>
           </h1>
           <span className="text-[10px] text-[#8E929E] font-medium">
-            Synchronisée avec le planning
+            Mutualisée & synchronisée
           </span>
         </div>
 
@@ -262,6 +350,67 @@ export default function GroceriesPage() {
         {exportNotice && (
           <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-2xl animate-in fade-in text-center">
             {exportNotice}
+          </div>
+        )}
+
+        {/* Recipe Filter Carousel (Interactive Miniature Recipe Chips) */}
+        {contributingRecipes.length > 0 && (
+          <div className="bg-white p-3.5 rounded-3xl border border-slate-100 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[11px] font-bold text-slate-500">
+                Recettes prévues ({selectedRecipeIds.size}/{contributingRecipes.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedRecipeIds.size === contributingRecipes.length) {
+                    setSelectedRecipeIds(new Set());
+                  } else {
+                    setSelectedRecipeIds(new Set(contributingRecipes.map((r) => r.id)));
+                  }
+                }}
+                className="text-[10px] font-bold text-[#5DB534] hover:underline cursor-pointer"
+              >
+                {selectedRecipeIds.size === contributingRecipes.length
+                  ? "Tout masquer"
+                  : "Tout afficher"}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+              {contributingRecipes.map((rec) => {
+                const isSelected = selectedRecipeIds.has(rec.id);
+                return (
+                  <button
+                    key={rec.id}
+                    type="button"
+                    onClick={() => toggleRecipeFilter(rec.id)}
+                    className={`flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-2xl border transition-all cursor-pointer shrink-0 active:scale-95 ${
+                      isSelected
+                        ? "bg-emerald-50/50 border-[#5DB534] shadow-2xs ring-1 ring-[#5DB534]/30"
+                        : "bg-slate-50/60 border-slate-200 opacity-40 grayscale"
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-xl overflow-hidden bg-slate-200 shrink-0 border border-slate-100 shadow-2xs">
+                      {rec.imageUrl ? (
+                        <img
+                          src={rec.imageUrl}
+                          alt={rec.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-emerald-100 flex items-center justify-center text-xs">
+                          🍽️
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs font-bold text-[#181A20] truncate max-w-[130px]">
+                      {rec.title}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -318,17 +467,19 @@ export default function GroceriesPage() {
             <div className="w-8 h-8 border-3 border-[#5DB534] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
             <p className="text-xs text-[#8E929E]">Chargement de votre liste...</p>
           </div>
-        ) : items.length === 0 ? (
+        ) : displayItems.length === 0 ? (
           /* Empty State */
           <div className="py-16 px-6 bg-white rounded-3xl border border-dashed border-slate-200 text-center flex flex-col items-center">
             <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-[#5DB534] flex items-center justify-center mb-3">
               <ShoppingBag className="w-7 h-7" />
             </div>
             <h3 className="text-sm font-extrabold text-[#181A20]">
-              Votre liste de courses est vide
+              Aucun ingrédient à acheter
             </h3>
             <p className="text-xs text-[#8E929E] mt-1 max-w-xs leading-relaxed">
-              Planifiez des recettes dans votre <strong>Calendrier</strong> pour y ajouter automatiquement les ingrédients nécessaires !
+              {contributingRecipes.length > 0 && selectedRecipeIds.size === 0
+                ? "Toutes les recettes sont actuellement désélectionnées. Cliquez sur les miniatures en haut pour les réafficher !"
+                : "Planifiez des recettes dans votre Calendrier pour y ajouter automatiquement les ingrédients mutualisés !"}
             </p>
             <button
               type="button"
@@ -359,52 +510,95 @@ export default function GroceriesPage() {
 
                 {/* Items in this category */}
                 <div className="space-y-2">
-                  {group.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all"
-                    >
-                      <div
-                        onClick={() => handleToggle(item)}
-                        className="flex items-center gap-3 flex-1 cursor-pointer"
-                      >
-                        {/* Checkbox */}
-                        <div className="w-5 h-5 rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0" />
+                  {group.items.map((item) => {
+                    const activeSources: RecipeContribution[] =
+                      item.recipeSources && item.recipeSources.length > 0
+                        ? item.recipeSources
+                        : item.recipeId
+                        ? [
+                            {
+                              recipeId: item.recipeId,
+                              recipeTitle: item.recipeTitle || "Recette",
+                              recipeImageUrl: item.recipeImageUrl,
+                            },
+                          ]
+                        : [];
 
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-[#181A20]">
-                            {item.name}
-                          </span>
-                          {item.recipeTitle && (
-                            <span className="text-[10px] text-[#5DB534] font-medium flex items-center gap-1">
-                              <span>🍽️</span>
-                              <span className="truncate max-w-[180px]">
-                                {item.recipeTitle}
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all"
+                      >
+                        <div
+                          onClick={() => handleToggle(item)}
+                          className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
+                        >
+                          {/* Checkbox */}
+                          <div className="w-5 h-5 rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0" />
+
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="text-xs font-bold text-[#181A20] truncate">
+                              {item.name}
+                            </span>
+
+                            {/* Mutualized Source Recipe Badges */}
+                            {activeSources.length > 0 && (
+                              <span className="text-[10px] text-[#5DB534] font-medium flex items-center gap-1 mt-0.5 truncate">
+                                <span>🍽️</span>
+                                <span className="truncate max-w-[200px]">
+                                  {activeSources.map((s) => s.recipeTitle).join(" + ")}
+                                </span>
                               </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {/* Recipe Miniatures Avatars */}
+                          {activeSources.length > 0 && (
+                            <div className="flex items-center -space-x-2 shrink-0">
+                              {activeSources.map((src, idx) => (
+                                <div
+                                  key={idx}
+                                  className="w-6 h-6 rounded-full overflow-hidden border-2 border-white shadow-2xs bg-slate-100 shrink-0"
+                                  title={src.recipeTitle}
+                                >
+                                  {src.recipeImageUrl ? (
+                                    <img
+                                      src={src.recipeImageUrl}
+                                      alt={src.recipeTitle}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-emerald-100 flex items-center justify-center text-[9px]">
+                                      🍽️
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Amount Pill */}
+                          {(item.amount || item.unit) && (
+                            <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
+                              {item.amount ? `${item.amount} ` : ""}
+                              {item.unit || ""}
                             </span>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item)}
+                            className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        {(item.amount || item.unit) && (
-                          <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
-                            {item.amount ? `${item.amount} ` : ""}
-                            {item.unit || ""}
-                          </span>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(item)}
-                          className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
-                          title="Supprimer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}
