@@ -50,9 +50,8 @@ export async function POST(req: NextRequest) {
 
     const geminiApiKey =
       process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    const openAiApiKey = process.env.OPENAI_API_KEY;
 
-    log(`Clés API détectées: Gemini=${Boolean(geminiApiKey)}, OpenAI=${Boolean(openAiApiKey)}`);
+    log(`Clé API Gemini détectée: ${Boolean(geminiApiKey)}`);
 
     // Convert uploaded images to base64
     const imagesData = await Promise.all(
@@ -111,12 +110,12 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
       "chefTip": "Astuce si mentionnée",
       "stepPhotoIndex": 1,
       "stepCropBox": [80, 50, 320, 350],
-      "imagePrompt": "Detailed English food photography prompt describing the exact visual scene seen in this step photo (e.g. 'Top-down photo of chopped sweet potatoes and carrots neatly cut on a rustic wooden board with sliced garlic and ginger, studio lighting, 8k culinary photograph')"
+      "imagePrompt": "Detailed English food photography prompt describing the exact visual scene seen in this step photo"
     }
   ]
 }`;
 
-    // 1. Google Gemini 3.8 Flash Multimodal Vision
+    // Google Gemini Flash Multimodal Vision
     if (geminiApiKey) {
       const candidateModels = [
         "gemini-3.5-flash-lite",
@@ -151,7 +150,7 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
                 temperature: 0.1,
               },
             }),
-            signal: AbortSignal.timeout(18000),
+            signal: AbortSignal.timeout(25000),
           });
 
           log(`Réponse HTTP Gemini (${model}): status ${geminiRes.status}`);
@@ -170,7 +169,7 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
               return NextResponse.json({
                 recipe: parsed,
                 logs: serverLogs,
-                provider: `Gemini (${model})`,
+                provider: `Google Gemini Vision (${model})`,
               });
             } else {
               log(`Réponse Gemini (${model}) reçue sans texte exploitable.`);
@@ -182,55 +181,6 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
         } catch (geminiError: any) {
           log(`Exception Gemini (${model}): ${geminiError?.message || geminiError}`);
         }
-      }
-    }
-
-    // 2. OpenAI GPT-4o Vision
-    if (openAiApiKey) {
-      try {
-        log("Appel de l'API OpenAI GPT-4o Vision...");
-        const contentPayload: any[] = [
-          { type: "text", text: systemPrompt },
-          ...imagesData.map((img) => ({
-            type: "image_url",
-            image_url: { url: img.dataUrl, detail: "high" },
-          })),
-        ];
-
-        const openAiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${openAiApiKey}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4o",
-            messages: [{ role: "user", content: contentPayload }],
-            response_format: { type: "json_object" },
-            temperature: 0.1,
-          }),
-        });
-
-        log(`Réponse HTTP OpenAI: status ${openAiRes.status}`);
-
-        if (openAiRes.ok) {
-          const aiJson = await openAiRes.json();
-          const rawContent = aiJson.choices?.[0]?.message?.content;
-          if (rawContent) {
-            const parsed = JSON.parse(rawContent);
-            log(`Succès OpenAI GPT-4o : Plat "${parsed.title}" avec ${parsed.ingredients?.length || 0} ingrédients.`);
-            return NextResponse.json({
-              recipe: parsed,
-              logs: serverLogs,
-              provider: "OpenAI GPT-4o",
-            });
-          }
-        } else {
-          const errText = await openAiRes.text();
-          log(`Erreur OpenAI HTTP ${openAiRes.status}: ${errText.substring(0, 200)}`);
-        }
-      } catch (openAiError: any) {
-        log(`Exception OpenAI: ${openAiError?.message || openAiError}`);
       }
     }
 

@@ -6,9 +6,42 @@ export interface AIParseResult {
   provider?: string;
 }
 
+export interface RecipePhotoPair {
+  id: string;
+  rectoFile: File;
+  versoFile?: File;
+  rectoPreview: string;
+  versoPreview?: string;
+  status: "idle" | "processing" | "success" | "error";
+  recipe?: Recipe;
+  error?: string;
+  logs?: string[];
+}
+
 /**
- * Compresses and downscales image files on the client before sending to Vercel Serverless Functions.
- * Keeps image resolution crisp (max 1600px) while reducing file size from 5-10MB to <500KB.
+ * Creates recipe pairs from an array of uploaded files (up to 100).
+ * Assumes consecutive files are Recto + Verso by default (photo 1 = recto, photo 2 = verso, etc.)
+ */
+export function createPairsFromFiles(files: File[]): RecipePhotoPair[] {
+  const pairs: RecipePhotoPair[] = [];
+  for (let i = 0; i < files.length; i += 2) {
+    const rectoFile = files[i];
+    const versoFile = files[i + 1] || undefined;
+    pairs.push({
+      id: `pair_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}`,
+      rectoFile,
+      versoFile,
+      rectoPreview: URL.createObjectURL(rectoFile),
+      versoPreview: versoFile ? URL.createObjectURL(versoFile) : undefined,
+      status: "idle",
+    });
+  }
+  return pairs;
+}
+
+/**
+ * Compresses and downscales image files on the client before sending to backend.
+ * Keeps image resolution crisp (max 1200px) while reducing file size from 5-10MB to <500KB.
  */
 export async function compressImageForUpload(
   file: File,
@@ -16,7 +49,6 @@ export async function compressImageForUpload(
   quality: number = 0.78
 ): Promise<File> {
   return new Promise((resolve) => {
-    // If file is already small (< 300KB), return as is
     if (file.size < 300 * 1024) {
       return resolve(file);
     }
@@ -196,33 +228,7 @@ export async function cropAndRotateRegion(
 }
 
 /**
- * Calls backend pure AI image generation (OpenAI ChatGPT Image / NanoBanana)
- */
-export async function requestPureAIGeneratedImage(
-  prompt: string,
-  stepNumber?: number,
-  recipeTitle?: string
-): Promise<{ imageUrl?: string; error?: string }> {
-  try {
-    const res = await fetch("/api/ai/generate-step-image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, stepNumber, recipeTitle }),
-    });
-
-    const data = await res.json();
-    if (res.ok && data?.imageUrl) {
-      return { imageUrl: data.imageUrl };
-    }
-    return { error: data?.error || "Erreur de génération d'image" };
-  } catch (err: any) {
-    console.warn("requestPureAIGeneratedImage:", err);
-    return { error: err?.message || "Erreur de connexion" };
-  }
-}
-
-/**
- * Intelligent Multi-Photo Recipe Album Parser with auto-compression, auto-rotation and OCR
+ * Intelligent Recipe Photos Parser (handles 1 or 2 photos: Recto & Verso)
  */
 export async function parseRecipeAlbumWithAI(
   files: File[],
@@ -240,8 +246,8 @@ export async function parseRecipeAlbumWithAI(
     logClient(`Photo ${i + 1} brute: ${f.name} (${(f.size / (1024 * 1024)).toFixed(2)} MB, ${f.type})`);
   });
 
-  // 1. Auto-compress images client-side to ensure total payload is well under Vercel's 4.5MB limit
-  onProgress?.("Optimisation & compression des photos pour l'IA...");
+  // 1. Client-side photo optimization
+  onProgress?.("Optimisation des photos pour Gemini Vision...");
   logClient("Compression intelligente des photos (max 1200px, JPEG 78%)...");
 
   const compressedFiles: File[] = await Promise.all(
@@ -250,16 +256,13 @@ export async function parseRecipeAlbumWithAI(
       const compressed = await compressImageForUpload(file, 1200, 0.78);
       const newSize = compressed.size;
       logClient(
-        `Photo ${idx + 1} optimisée: ${(initialSize / (1024 * 1024)).toFixed(2)} MB ➔ ${(newSize / (1024 * 1024)).toFixed(2)} MB (${Math.round((newSize / initialSize) * 100)}%)`
+        `Photo ${idx + 1} optimisée: ${(initialSize / (1024 * 1024)).toFixed(2)} MB ➔ ${(newSize / (1024 * 1024)).toFixed(2)} MB`
       );
       return compressed;
     })
   );
 
-  const totalPayloadMb = (compressedFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2);
-  logClient(`Poids total du payload réseau: ${totalPayloadMb} MB (limite Vercel: 4.5 MB)`);
-
-  onProgress?.("Analyse multimodale & OCR par IA (Gemini)...");
+  onProgress?.("Extraction OCR par IA Google Gemini...");
 
   const formData = new FormData();
   compressedFiles.forEach((file, i) => {
@@ -287,9 +290,9 @@ export async function parseRecipeAlbumWithAI(
       } catch (networkErr: any) {
         logClient(`Tentative ${attempts} interrompue: ${networkErr?.message || networkErr}`);
         if (attempts >= maxAttempts) {
-          throw new Error(`Erreur réseau mobile (${networkErr?.message || "Connexion interrompue"}). Veuillez réessayer.`);
+          throw new Error(`Erreur réseau (${networkErr?.message || "Connexion interrompue"}). Veuillez réessayer.`);
         }
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 1000));
       }
     }
 
@@ -297,18 +300,14 @@ export async function parseRecipeAlbumWithAI(
       throw new Error("Aucune réponse reçue du serveur.");
     }
 
-    logClient(`Réponse serveur reçue avec le status: ${response.status} ${response.statusText}`);
-
+    logClient(`Réponse serveur reçue: status ${response.status}`);
     const responseText = await response.text();
 
     try {
       data = JSON.parse(responseText);
-    } catch (parseError) {
-      logClient(`ERREUR: Réponse non-JSON du serveur (status ${response.status}): ${responseText.substring(0, 120)}`);
-      if (response.status === 413) {
-        throw new Error("Payload trop volumineux (HTTP 413).");
-      }
-      throw new Error(`Erreur serveur HTTP ${response.status}: ${responseText.substring(0, 80)}`);
+    } catch {
+      logClient(`ERREUR: Réponse non-JSON du serveur: ${responseText.substring(0, 120)}`);
+      throw new Error(`Erreur serveur HTTP ${response.status}`);
     }
 
     if (Array.isArray(data?.logs)) {
@@ -333,7 +332,6 @@ export async function parseRecipeAlbumWithAI(
     : [0, 0];
 
   logClient(`Recette OCR extraite: "${rawRecipe.title}" (${rawRecipe.ingredients?.length || 0} ingrédients, ${rawRecipe.steps?.length || 0} étapes)`);
-  logClient(`Rotations détectées par l'IA: [${photoOrientations.join("°, ")}°]`);
 
   // 2. Extract, rotate upright and cutout Main Dish Image
   onProgress?.("Redressement et détourage du plat principal...");
@@ -348,7 +346,6 @@ export async function parseRecipeAlbumWithAI(
   const frontRotation = rawRecipe.frontPhotoRotation ?? photoOrientations[frontIdx] ?? 0;
   const dishCropBox = rawRecipe.mainDishCropBox || [150, 100, 800, 850];
 
-  logClient(`Détourage plat principal (photo index ${frontIdx}, rotation ${frontRotation}°, cropBox: [${dishCropBox.join(",")}])`);
   let mainDishCutout = "";
   try {
     mainDishCutout = await cropAndRotateRegion(
@@ -364,7 +361,7 @@ export async function parseRecipeAlbumWithAI(
   }
 
   // 3. Extract, rotate upright, and crop EACH Step Photo from the steps sheet photo
-  onProgress?.("Redressement et extraction des photos d'étapes...");
+  onProgress?.("Redressement et découpage des étapes...");
   const versoIdx =
     compressedFiles.length > 1
       ? frontIdx === 0
@@ -407,21 +404,17 @@ export async function parseRecipeAlbumWithAI(
         chefTip: step.chefTip,
         imagePrompt: step.imagePrompt,
         originalCutoutUrl: cutoutUrl,
-        studioAiImageUrl: undefined,
         imageUrl: cutoutUrl,
       };
     })
   );
 
-  logClient(`${enhancedSteps.length} étape(s) préparée(s) (Photos fiche réelles + Studio IA).`);
-
   const finalRecipe: Recipe = {
     ...rawRecipe,
-    id: `rec_${Date.now()}`,
+    id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     userId,
     imageUrl: mainDishCutout || URL.createObjectURL(frontFile),
     originalImageUrl: mainDishCutout || URL.createObjectURL(frontFile),
-    studioAiImageUrl: undefined,
     steps: enhancedSteps,
     isFavorite: false,
     createdAt: new Date().toISOString(),
@@ -431,6 +424,6 @@ export async function parseRecipeAlbumWithAI(
   return {
     recipe: finalRecipe,
     logs,
-    provider: data.provider || "Gemini Flash Vision OCR",
+    provider: data.provider || "Google Gemini Vision",
   };
 }
