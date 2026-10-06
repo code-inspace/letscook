@@ -25,6 +25,9 @@ import {
   Image as ImageIcon,
   Loader2,
   RefreshCw,
+  Film,
+  ExternalLink,
+  Globe,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { getStoredUserSession } from "@/features/auth/actions";
@@ -108,6 +111,8 @@ export default function RecipeDetailPage() {
   const [editDifficulty, setEditDifficulty] = useState<"Easy" | "Medium" | "Hard">("Easy");
   const [editServingsBase, setEditServingsBase] = useState<number>(6);
   const [editImageUrl, setEditImageUrl] = useState<string>("");
+  const [editSourceUrl, setEditSourceUrl] = useState<string>("");
+  const [editVideoUrl, setEditVideoUrl] = useState<string>("");
   const [editIngredients, setEditIngredients] = useState<IngredientItem[]>([]);
   const [editSteps, setEditSteps] = useState<RecipeStep[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
@@ -234,6 +239,8 @@ export default function RecipeDetailPage() {
     setEditDifficulty(recipe.difficulty || "Easy");
     setEditServingsBase(recipe.servingsBase || 2);
     setEditImageUrl(recipe.imageUrl || "");
+    setEditSourceUrl(recipe.sourceUrl || "");
+    setEditVideoUrl(recipe.videoUrl || "");
     setEditIngredients(recipe.ingredients ? JSON.parse(JSON.stringify(recipe.ingredients)) : []);
     setEditSteps(recipe.steps ? JSON.parse(JSON.stringify(recipe.steps)) : []);
     setEditTab("general");
@@ -255,6 +262,8 @@ export default function RecipeDetailPage() {
         difficulty: editDifficulty,
         servingsBase: Number(editServingsBase) || 2,
         imageUrl: editImageUrl.trim() || recipe.imageUrl,
+        sourceUrl: editSourceUrl.trim() || undefined,
+        videoUrl: editVideoUrl.trim() || undefined,
         ingredients: editIngredients.filter((i) => i.name && i.name.trim()),
         steps: editSteps
           .filter((s) => s.description && s.description.trim())
@@ -639,6 +648,30 @@ export default function RecipeDetailPage() {
           <p className="text-xs text-[#8E929E] font-medium mt-1 leading-relaxed">
             {recipe.subtitle}
           </p>
+        )}
+
+        {/* Video / Source URL Link Badge */}
+        {(recipe.videoUrl || recipe.sourceUrl) && (
+          <div className="mt-3 flex items-center gap-2">
+            <a
+              href={recipe.videoUrl || recipe.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-bold border border-rose-100/80 transition-all shadow-2xs active:scale-95 cursor-pointer"
+            >
+              <Film className="w-3.5 h-3.5 text-rose-500" />
+              <span>
+                {recipe.videoUrl?.includes("instagram") || recipe.sourceUrl?.includes("instagram")
+                  ? "Voir le Reel Instagram"
+                  : recipe.videoUrl?.includes("tiktok") || recipe.sourceUrl?.includes("tiktok")
+                  ? "Voir sur TikTok"
+                  : recipe.videoUrl?.includes("youtube") || recipe.sourceUrl?.includes("youtube") || recipe.sourceUrl?.includes("youtu.be")
+                  ? "Voir sur YouTube"
+                  : "Voir la source / vidéo originale"}
+              </span>
+              <ExternalLink className="w-3 h-3 opacity-70" />
+            </a>
+          </div>
         )}
       </div>
 
@@ -1251,6 +1284,23 @@ export default function RecipeDetailPage() {
                         />
                       </div>
                     </div>
+                  </div>
+
+                  {/* Video / Source URL Edit */}
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                    <label className="block text-xs font-bold text-[#181A20]">
+                      Lien de la vidéo / source originale
+                    </label>
+                    <input
+                      type="url"
+                      value={editVideoUrl || editSourceUrl}
+                      onChange={(e) => {
+                        setEditVideoUrl(e.target.value);
+                        setEditSourceUrl(e.target.value);
+                      }}
+                      placeholder="https://www.instagram.com/reel/... ou https://..."
+                      className="w-full bg-slate-50 px-3.5 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                    />
                   </div>
                 </div>
               )}

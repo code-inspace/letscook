@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS public.recipes (
   allergens JSONB DEFAULT '[]'::jsonb,
   ingredients TEXT NOT NULL, -- JSON chiffré AES-256
   steps TEXT NOT NULL,       -- JSON chiffré AES-256
+  source_url TEXT,           -- Lien d'origine (Marmiton, 750g, etc.)
+  video_url TEXT,            -- Lien de la vidéo (Instagram Reel, TikTok, YouTube Shorts...)
   is_favorite BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL

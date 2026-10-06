@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Sparkles,
   Timer,
+  Film,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useAuth } from "@/providers/AuthProvider";
@@ -242,9 +243,23 @@ export default function CookingStepPage() {
           <ChevronLeft className="w-5 h-5" />
         </button>
 
-        <span className="text-[11px] font-bold text-white/95 uppercase tracking-widest bg-black/50 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/20">
-          Étape {currentStepIndex + 1} / {totalSteps}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold text-white/95 uppercase tracking-widest bg-black/50 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/20">
+            Étape {currentStepIndex + 1} / {totalSteps}
+          </span>
+
+          {(recipe.videoUrl || recipe.sourceUrl) && (
+            <a
+              href={recipe.videoUrl || recipe.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-9 h-9 rounded-full bg-rose-600/90 hover:bg-rose-600 backdrop-blur-md border border-white/30 flex items-center justify-center text-white active:scale-95 transition-all shadow-lg cursor-pointer"
+              title="Ouvrir la vidéo source / Reel"
+            >
+              <Film className="w-4 h-4" />
+            </a>
+          )}
+        </div>
 
         <button
           type="button"

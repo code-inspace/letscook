@@ -29,6 +29,8 @@ import {
   Flame,
   Loader2,
   BookOpen,
+  Video,
+  Film,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { Recipe } from "@/features/recipes/types";
@@ -45,9 +47,10 @@ export default function AIImportPage() {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const addMoreInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Tab State: 'url' | 'photos'
-  const [activeTab, setActiveTab] = useState<"url" | "photos">("url");
+  // Tab State: 'url' | 'photos' | 'video'
+  const [activeTab, setActiveTab] = useState<"url" | "photos" | "video">("url");
 
   // URL Import State
   const [urlInput, setUrlInput] = useState<string>("");
@@ -56,6 +59,16 @@ export default function AIImportPage() {
   const [parsedUrlRecipe, setParsedUrlRecipe] = useState<Recipe | null>(null);
   const [isSavingUrlRecipe, setIsSavingUrlRecipe] = useState<boolean>(false);
   const [savedUrlSuccess, setSavedUrlSuccess] = useState<boolean>(false);
+
+  // Video File Import State
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [videoNotes, setVideoNotes] = useState<string>("");
+  const [isParsingVideo, setIsParsingVideo] = useState<boolean>(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [parsedVideoRecipe, setParsedVideoRecipe] = useState<Recipe | null>(null);
+  const [isSavingVideoRecipe, setIsSavingVideoRecipe] = useState<boolean>(false);
+  const [savedVideoSuccess, setSavedVideoSuccess] = useState<boolean>(false);
 
   // Photos Batch State
   const [pairs, setPairs] = useState<RecipePhotoPair[]>([]);
@@ -104,6 +117,7 @@ export default function AIImportPage() {
       }
 
       const raw = data.recipe;
+      const isVideoLink = /instagram\.com|tiktok\.com|youtube\.com|youtu\.be/i.test(targetUrl);
       const recipeToSet: Recipe = {
         id: `url_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         userId: user?.id || "guest",
@@ -114,9 +128,11 @@ export default function AIImportPage() {
         prepTimeMinutes: raw.prepTimeMinutes || 30,
         difficulty: raw.difficulty || "Easy",
         rating: raw.rating || 4.8,
-        servingsBase: raw.servingsBase || 4,
+        servingsBase: raw.servingsBase || 6,
         ingredients: Array.isArray(raw.ingredients) ? raw.ingredients : [],
         steps: Array.isArray(raw.steps) ? raw.steps : [],
+        sourceUrl: raw.sourceUrl || targetUrl,
+        videoUrl: raw.videoUrl || (isVideoLink ? targetUrl : undefined),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -153,6 +169,107 @@ export default function AIImportPage() {
       setUrlError(err?.message || "Erreur lors de la sauvegarde en base.");
     } finally {
       setIsSavingUrlRecipe(false);
+    }
+  };
+
+  // Handler: Select video file
+  const handleSelectVideo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setVideoFile(file);
+      setVideoPreview(URL.createObjectURL(file));
+      setVideoError(null);
+      setParsedVideoRecipe(null);
+      setSavedVideoSuccess(false);
+      addLog(`Vidéo sélectionnée : ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
+    }
+  };
+
+  // Handler: Parse Video File with Multimodal AI
+  const handleParseVideo = async () => {
+    if (!videoFile) {
+      setVideoError("Veuillez sélectionner un fichier vidéo.");
+      return;
+    }
+
+    setVideoError(null);
+    setIsParsingVideo(true);
+    setParsedVideoRecipe(null);
+    setSavedVideoSuccess(false);
+    addLog(`Envoi de la vidéo "${videoFile.name}" à l'IA multimodale Gemini 2.5 Flash...`);
+
+    try {
+      const formData = new FormData();
+      formData.append("video", videoFile);
+      if (videoNotes.trim()) formData.append("notes", videoNotes.trim());
+
+      const res = await fetch("/api/ai/parse-recipe-video", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.recipe) {
+        throw new Error(data.error || "Échec de l'analyse vidéo.");
+      }
+
+      if (data.logs && Array.isArray(data.logs)) {
+        data.logs.forEach((l: string) => addLog(l));
+      }
+
+      const raw = data.recipe;
+      const extractedUrlMatch = videoNotes.match(/https?:\/\/[^\s]+/i);
+      const recipeToSet: Recipe = {
+        id: `vid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        userId: user?.id || "guest",
+        title: raw.title || "Recette vidéo",
+        subtitle: raw.subtitle || undefined,
+        category: raw.category || "Main Dishes",
+        imageUrl: raw.imageUrl || "",
+        prepTimeMinutes: raw.prepTimeMinutes || 30,
+        difficulty: raw.difficulty || "Easy",
+        rating: raw.rating || 5.0,
+        servingsBase: raw.servingsBase || 6,
+        ingredients: Array.isArray(raw.ingredients) ? raw.ingredients : [],
+        steps: Array.isArray(raw.steps) ? raw.steps : [],
+        sourceUrl: raw.sourceUrl || (extractedUrlMatch ? extractedUrlMatch[0] : undefined),
+        videoUrl: raw.videoUrl || (extractedUrlMatch ? extractedUrlMatch[0] : undefined),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      setParsedVideoRecipe(recipeToSet);
+      addLog(`Succès : Recette vidéo "${recipeToSet.title}" extraite (${recipeToSet.ingredients.length} ingrédients, ${recipeToSet.steps.length} étapes).`);
+    } catch (err: any) {
+      console.error("handleParseVideo error:", err);
+      setVideoError(err?.message || "Échec de l'analyse de la vidéo.");
+      addLog(`ERREUR VIDÉO : ${err?.message || err}`);
+    } finally {
+      setIsParsingVideo(false);
+    }
+  };
+
+  // Handler: Save Video Recipe to Database
+  const handleSaveParsedVideoRecipe = async () => {
+    if (!parsedVideoRecipe) return;
+    if (!user?.id) {
+      router.push("/login?redirectedFrom=/import");
+      return;
+    }
+
+    setIsSavingVideoRecipe(true);
+    try {
+      const saved = await saveRecipeToDb(parsedVideoRecipe, user.id);
+      setSavedVideoSuccess(true);
+      addLog(`Recette vidéo "${saved.title}" enregistrée en base de données avec succès.`);
+      setTimeout(() => {
+        router.push(`/recipes/${saved.id}`);
+      }, 1000);
+    } catch (err: any) {
+      console.error("handleSaveParsedVideoRecipe error:", err);
+      setVideoError(err?.message || "Erreur lors de la sauvegarde en base.");
+    } finally {
+      setIsSavingVideoRecipe(false);
     }
   };
 
@@ -344,30 +461,42 @@ export default function AIImportPage() {
 
       <div className="max-w-3xl w-full mx-auto px-5 pt-4 space-y-5">
         {/* Tab Switcher */}
-        <div className="flex bg-slate-200/70 p-1 rounded-2xl">
+        <div className="flex bg-slate-200/70 p-1 rounded-2xl gap-1">
           <button
             type="button"
             onClick={() => setActiveTab("url")}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === "url"
                 ? "bg-white text-[#181A20] shadow-xs"
                 : "text-slate-500 hover:text-slate-800"
             }`}
           >
             <Globe className="w-4 h-4 text-[#5DB534]" />
-            <span>Lien Web (Marmiton, 750g, etc.)</span>
+            <span className="truncate">Lien Web & Réseaux</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("photos")}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === "photos"
                 ? "bg-white text-[#181A20] shadow-xs"
                 : "text-slate-500 hover:text-slate-800"
             }`}
           >
             <Camera className="w-4 h-4 text-[#5DB534]" />
-            <span>Photos de fiches (OCR)</span>
+            <span className="truncate">Photos Fiches (OCR)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("video")}
+            className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "video"
+                ? "bg-white text-[#181A20] shadow-xs"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <Film className="w-4 h-4 text-[#5DB534]" />
+            <span className="truncate">Vidéo / Reel (IA)</span>
           </button>
         </div>
 
@@ -379,10 +508,10 @@ export default function AIImportPage() {
               <div>
                 <h3 className="text-sm font-extrabold text-[#181A20] flex items-center gap-2">
                   <LinkIcon className="w-4 h-4 text-[#5DB534]" />
-                  <span>Collez le lien d'une recette</span>
+                  <span>Collez le lien d'une recette ou d'un Reel / TikTok</span>
                 </h3>
                 <p className="text-xs text-[#8E929E] mt-1 leading-relaxed">
-                  Supporte Marmiton, 750g, CuisineAZ, blogs culinaires, HelloFresh et tous les sites de cuisine compatibles Schema.org / IA.
+                  Supporte <strong>Instagram Reels</strong>, <strong>TikTok</strong>, <strong>YouTube Shorts</strong>, ainsi que <strong>Marmiton, 750g, CuisineAZ</strong>, HelloFresh et blogs culinaires.
                 </p>
               </div>
 
@@ -395,7 +524,7 @@ export default function AIImportPage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleParseUrl();
                     }}
-                    placeholder="https://www.marmiton.org/recettes/..."
+                    placeholder="https://www.instagram.com/reel/... ou https://www.marmiton.org/..."
                     className="w-full bg-slate-50 px-4 py-3.5 rounded-2xl text-xs text-[#181A20] placeholder-slate-400 border border-slate-200/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
                   />
                   {urlInput && (
@@ -853,6 +982,268 @@ export default function AIImportPage() {
                         <span>Lancer l'analyse du lot</span>
                       </button>
                     )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: VIDEO / REEL MULTIMODAL IMPORT */}
+        {activeTab === "video" && (
+          <div className="space-y-4">
+            {/* Description card */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+              <p className="text-xs text-[#8E929E] leading-relaxed">
+                Importez directement un <strong>fichier vidéo</strong> (Reel Instagram téléchargé, TikTok, vidéo de cuisine enregistrée). L'IA <strong>Gemini 2.5 Flash</strong> analyse simultanément l'<strong>image</strong>, les <strong>gestes du chef</strong>, le <strong>texte à l'écran</strong> et la <strong>voix off</strong> pour construire la fiche recette complète calibrée pour 6 personnes.
+              </p>
+            </div>
+
+            {/* Video Dropzone / Selector */}
+            {!videoFile ? (
+              <div
+                onClick={() => videoInputRef.current?.click()}
+                className="border-2 border-dashed border-[#5DB534]/60 hover:border-[#5DB534] bg-emerald-50/20 hover:bg-emerald-50/40 rounded-3xl p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all shadow-xs group"
+              >
+                <input
+                  ref={videoInputRef}
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm,video/m4v"
+                  onChange={handleSelectVideo}
+                  className="hidden"
+                />
+
+                <div className="w-16 h-16 rounded-2xl bg-white text-[#5DB534] flex items-center justify-center mb-4 shadow-sm group-hover:scale-105 transition-transform border border-emerald-100">
+                  <Film className="w-8 h-8" />
+                </div>
+
+                <h3 className="text-base font-extrabold text-[#181A20]">
+                  Déposez votre vidéo de recette ici
+                </h3>
+                <p className="text-xs text-[#8E929E] mt-1.5 max-w-sm">
+                  Formats supportés : MP4, MOV, WEBM. Analyse visuelle et sonore par IA multimodale.
+                </p>
+
+                <button
+                  type="button"
+                  className="mt-5 px-5 py-2.5 bg-[#5DB534] hover:bg-[#4FA12A] text-white text-xs font-bold rounded-full flex items-center gap-2 shadow-md shadow-emerald-600/20 active:scale-95 transition-all"
+                >
+                  <Video className="w-4 h-4" />
+                  <span>Choisir un fichier vidéo</span>
+                </button>
+              </div>
+            ) : (
+              /* Selected Video & Action Panel */
+              <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-3 truncate">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#5DB534] flex items-center justify-center shrink-0">
+                      <Film className="w-5 h-5" />
+                    </div>
+                    <div className="truncate">
+                      <h4 className="text-xs font-bold text-[#181A20] truncate">
+                        {videoFile.name}
+                      </h4>
+                      <span className="text-[11px] text-[#8E929E]">
+                        {(videoFile.size / (1024 * 1024)).toFixed(2)} MB
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVideoFile(null);
+                      setVideoPreview(null);
+                      setParsedVideoRecipe(null);
+                      setVideoError(null);
+                    }}
+                    disabled={isParsingVideo}
+                    className="text-xs font-bold text-rose-500 hover:text-rose-700 px-3 py-1.5 rounded-xl hover:bg-rose-50 transition-colors cursor-pointer"
+                  >
+                    Changer
+                  </button>
+                </div>
+
+                {/* Video Preview Player */}
+                {videoPreview && (
+                  <div className="rounded-2xl overflow-hidden bg-black aspect-video max-h-72 w-full flex items-center justify-center">
+                    <video
+                      src={videoPreview}
+                      controls
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                )}
+
+                {/* Optional User Notes */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#181A20] flex items-center justify-between">
+                    <span>Notes ou précisions complémentaires (optionnel)</span>
+                    <span className="text-[10px] text-[#8E929E] font-normal">ex: nom du plat, portions</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={videoNotes}
+                    onChange={(e) => setVideoNotes(e.target.value)}
+                    placeholder="ex: Recette de pâtes carbonara traditionnelles vue sur Instagram..."
+                    className="w-full bg-slate-50 px-4 py-2.5 rounded-2xl text-xs text-[#181A20] placeholder-slate-400 border border-slate-200/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30 resize-none"
+                  />
+                </div>
+
+                {videoError && (
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-xs text-red-600">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{videoError}</span>
+                  </div>
+                )}
+
+                {/* Analyze Action Button */}
+                <button
+                  type="button"
+                  onClick={handleParseVideo}
+                  disabled={isParsingVideo}
+                  className="w-full py-3.5 bg-[#5DB534] hover:bg-[#4FA12A] disabled:opacity-50 text-white text-xs font-extrabold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 active:scale-98 transition-all cursor-pointer"
+                >
+                  {isParsingVideo ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Analyse IA multimodale en cours (audio + vidéo)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Analyser la vidéo avec Gemini 2.5 Flash</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Parsed Video Recipe Preview Card */}
+            {parsedVideoRecipe && (
+              <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                <div className="relative h-48 sm:h-64 w-full bg-slate-900 flex items-center justify-center">
+                  {parsedVideoRecipe.imageUrl ? (
+                    <img
+                      src={parsedVideoRecipe.imageUrl}
+                      alt={parsedVideoRecipe.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center p-4">
+                      <Film className="w-12 h-12 text-[#5DB534] mx-auto mb-2 opacity-80" />
+                      <span className="text-xs text-slate-300 font-semibold">
+                        Recette extraite depuis la vidéo
+                      </span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  
+                  <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-xs font-extrabold text-[#5DB534]">
+                    {parsedVideoRecipe.category}
+                  </div>
+
+                  <div className="absolute bottom-4 left-4 right-4 text-white">
+                    <h2 className="text-lg sm:text-xl font-extrabold leading-tight">
+                      {parsedVideoRecipe.title}
+                    </h2>
+                    {parsedVideoRecipe.subtitle && (
+                      <p className="text-xs text-slate-200 line-clamp-1 mt-1">
+                        {parsedVideoRecipe.subtitle}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-4 mt-2 text-xs font-semibold text-slate-200">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-[#5DB534]" />
+                        {parsedVideoRecipe.prepTimeMinutes} min
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <ChefHat className="w-3.5 h-3.5 text-[#5DB534]" />
+                        {parsedVideoRecipe.servingsBase} portions
+                      </span>
+                      <span className="flex items-center gap-1">
+                        ★ {parsedVideoRecipe.rating}/5
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-5 sm:p-6 space-y-6">
+                  {/* Ingredients Section */}
+                  <div>
+                    <h4 className="text-xs font-bold text-[#181A20] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <Utensils className="w-3.5 h-3.5 text-[#5DB534]" />
+                      <span>Ingrédients ({parsedVideoRecipe.ingredients.length})</span>
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {parsedVideoRecipe.ingredients.map((ing, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-slate-50 px-3 py-2 rounded-xl flex items-center justify-between text-xs border border-slate-100"
+                        >
+                          <span className="font-semibold text-[#181A20]">{ing.name}</span>
+                          <span className="text-[#5DB534] font-bold">
+                            {ing.amount} {ing.unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Steps Section */}
+                  <div>
+                    <h4 className="text-xs font-bold text-[#181A20] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-[#5DB534]" />
+                      <span>Étapes de préparation ({parsedVideoRecipe.steps.length})</span>
+                    </h4>
+                    <div className="space-y-3">
+                      {parsedVideoRecipe.steps.map((st, idx) => (
+                        <div
+                          key={idx}
+                          className="p-3.5 bg-slate-50/70 rounded-2xl border border-slate-100 space-y-1"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-5 h-5 rounded-full bg-[#5DB534] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                              {st.stepNumber || idx + 1}
+                            </span>
+                            <span className="text-xs font-bold text-[#181A20]">
+                              {st.title || `Étape ${idx + 1}`}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 pl-7 leading-relaxed">
+                            {st.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Save Action Button */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveParsedVideoRecipe}
+                      disabled={isSavingVideoRecipe || savedVideoSuccess}
+                      className="w-full py-4 bg-[#5DB534] hover:bg-[#4FA12A] text-white text-sm font-extrabold rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 active:scale-98 transition-all cursor-pointer"
+                    >
+                      {savedVideoSuccess ? (
+                        <>
+                          <CheckCircle2 className="w-5 h-5" />
+                          <span>Recette vidéo enregistrée ! Redirection...</span>
+                        </>
+                      ) : isSavingVideoRecipe ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>Enregistrement en base de données...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-5 h-5" />
+                          <span>Enregistrer dans mes recettes</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>

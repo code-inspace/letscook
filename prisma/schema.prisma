@@ -61,6 +61,8 @@ model Recipe {
   rating          Float              @default(5.0)
   servingsBase    Int                @default(2)
   spiceLevel      String?
+  sourceUrl       String?
+  videoUrl        String?
   isFeatured      Boolean            @default(false)
   categoryId      String?
   category        Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)

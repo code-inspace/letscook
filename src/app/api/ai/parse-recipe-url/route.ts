@@ -83,7 +83,160 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    log(`Récupération de la page web: ${url}`);
+    log(`Analyse de l'URL: ${url}`);
+
+    const isInstagram = /instagram\.com\/(?:reel|p|tv|share)\/|instagr\.am/i.test(url);
+    const isTikTok = /tiktok\.com/i.test(url);
+    const isYouTube = /youtube\.com\/shorts\/|youtu\.be\/|youtube\.com\/watch/i.test(url);
+
+    // =========================================================================
+    // 0. TRAITEMENT SPÉCIAL RÉSEAUX SOCIAUX (INSTAGRAM, TIKTOK, YOUTUBE SHORTS)
+    // =========================================================================
+    if (isInstagram || isTikTok || isYouTube) {
+      log(`Lien vidéo/réseau social détecté : ${isInstagram ? "Instagram" : isTikTok ? "TikTok" : "YouTube"}`);
+
+      let socialCaption = "";
+      let socialThumbnail = "";
+      let socialAuthor = "";
+
+      // A. Essai via les API oEmbed officielles
+      try {
+        let oembedUrl = "";
+        if (isInstagram) {
+          oembedUrl = `https://api.instagram.com/oembed?url=${encodeURIComponent(url)}&omitscript=true`;
+        } else if (isTikTok) {
+          oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+        } else if (isYouTube) {
+          oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+        }
+
+        log(`Interrogation oEmbed : ${oembedUrl}`);
+        const oembedRes = await fetch(oembedUrl, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" },
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (oembedRes.ok) {
+          const oembedData = await oembedRes.json();
+          socialCaption = oembedData.title || oembedData.description || "";
+          socialThumbnail = oembedData.thumbnail_url || "";
+          socialAuthor = oembedData.author_name || "";
+          log(`Données oEmbed récupérées avec succès (${socialCaption.length} caractères dans la légende).`);
+        }
+      } catch (oembedErr) {
+        log(`oEmbed non disponible, passage au scraper OpenGraph : ${oembedErr}`);
+      }
+
+      // B. Secours OpenGraph avec headers mobiles
+      if (!socialCaption || !socialThumbnail) {
+        try {
+          const socialHtmlRes = await fetch(url, {
+            headers: {
+              "User-Agent":
+                "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+              Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (socialHtmlRes.ok) {
+            const socialHtml = await socialHtmlRes.text();
+            const ogTitle = socialHtml.match(/<meta\s+property=["']og:title["']\s+content=["'](.*?)["']/i)?.[1] || "";
+            const ogDesc = socialHtml.match(/<meta\s+property=["']og:description["']\s+content=["'](.*?)["']/i)?.[1] || "";
+            const ogImg = socialHtml.match(/<meta\s+property=["']og:image["']\s+content=["'](.*?)["']/i)?.[1] || "";
+
+            if (ogDesc && !socialCaption) socialCaption = ogDesc;
+            if (ogTitle && !socialCaption) socialCaption = ogTitle;
+            if (ogImg && !socialThumbnail) socialThumbnail = ogImg;
+            log("Métadonnées OpenGraph extraites.");
+          }
+        } catch {}
+      }
+
+      // C. Analyse par Gemini 2.5 Flash
+      const geminiApiKey =
+        process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+
+      if (!geminiApiKey) {
+        throw new Error("Clé API Gemini manquante pour analyser la vidéo Instagram.");
+      }
+
+      log("Analyse sémantique et culinaire de la publication avec Google Gemini...");
+
+      const socialPrompt = `Tu es un chef cuisinier expert spécialisé dans l'analyse de vidéos et recettes de réseaux sociaux (Instagram Reels, TikTok, YouTube).
+Voici les informations extraites de la publication :
+URL : ${url}
+Auteur / Créateur : ${socialAuthor || "Chef créateur"}
+Légende & Description complète de la vidéo :
+"""
+${socialCaption || "Vidéo culinaire"}
+"""
+Image de couverture détectée : ${socialThumbnail || ""}
+
+INSTRUCTIONS CRITIQUES :
+1. Extrais ou déduis le titre appétissant et exact de la recette.
+2. Identifie tous les ingrédients, condiments et quantités indiqués dans la description ou usuels pour ce plat. Calibre les quantités par défaut pour 6 personnes.
+3. Rédige les étapes de préparation chronologiques, claires et détaillées.
+4. Détermine le temps total de préparation, le niveau de difficulté ("Easy", "Medium" ou "Hard") et la catégorie adaptée.
+
+Réponds STRICTEMENT avec ce JSON valide :
+{
+  "title": "Nom de la recette",
+  "subtitle": "Courte description alléchante",
+  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads",
+  "imageUrl": "${socialThumbnail}",
+  "prepTimeMinutes": 30,
+  "difficulty": "Easy" | "Medium" | "Hard",
+  "rating": 5.0,
+  "servingsBase": 6,
+  "ingredients": [
+    { "id": "ing_1", "name": "Nom ingrédient", "amount": 200, "unit": "g" }
+  ],
+  "steps": [
+    { "stepNumber": 1, "title": "Étape 1", "description": "Instructions détaillées...", "durationMinutes": 5 }
+  ]
+}`;
+
+      const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+      const geminiRes = await fetch(geminiEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: socialPrompt }] }],
+          generationConfig: {
+            response_mime_type: "application/json",
+            temperature: 0.2,
+          },
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (geminiRes.ok) {
+        const geminiData = await geminiRes.json();
+        const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+          const parsed = JSON.parse(cleanedText);
+          parsed.sourceUrl = url;
+          if (!parsed.imageUrl && socialThumbnail) parsed.imageUrl = socialThumbnail;
+          parsed.servingsBase = parsed.servingsBase || 6;
+
+          log(`Succès : Recette "${parsed.title}" extraite de la vidéo avec ${parsed.ingredients?.length || 0} ingrédients.`);
+          return NextResponse.json({
+            recipe: parsed,
+            logs: serverLogs,
+            provider: isInstagram ? "Instagram Reel AI Extractor" : isTikTok ? "TikTok AI Extractor" : "YouTube Shorts AI",
+          });
+        }
+      }
+
+      throw new Error("Impossible d'extraire la recette depuis cette publication vidéo.");
+    }
+
+    // =========================================================================
+    // 1. EXTRACTION STANDARD POUR LES SITES DE RECETTES WEB (MARMITON, 750G...)
+    // =========================================================================
+    log(`Téléchargement de la page web : ${url}`);
 
     const res = await fetch(url, {
       headers: {

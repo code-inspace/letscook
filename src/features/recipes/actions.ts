@@ -236,6 +236,8 @@ export async function fetchRecipesFromDb(userId: string): Promise<Recipe[]> {
             allergens: row.allergens || [],
             ingredients: row.ingredients,
             steps: row.steps,
+            sourceUrl: row.source_url || row.sourceUrl,
+            videoUrl: row.video_url || row.videoUrl,
             isFavorite: Boolean(row.is_favorite),
             createdAt: row.created_at || new Date().toISOString(),
             updatedAt: row.updated_at || new Date().toISOString(),
@@ -286,6 +288,8 @@ export async function fetchRecipesFromDb(userId: string): Promise<Recipe[]> {
               allergens: clean.allergens,
               ingredients: encryptedIngredients,
               steps: encryptedSteps,
+              source_url: clean.sourceUrl || null,
+              video_url: clean.videoUrl || null,
               is_favorite: Boolean(clean.isFavorite),
               updated_at: new Date().toISOString(),
             };
@@ -354,6 +358,8 @@ export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Re
       allergens: recipeWithUser.allergens,
       ingredients: encryptedIngredients,
       steps: encryptedSteps,
+      source_url: recipeWithUser.sourceUrl || null,
+      video_url: recipeWithUser.videoUrl || null,
       is_favorite: Boolean(recipeWithUser.isFavorite),
       updated_at: new Date().toISOString(),
     };

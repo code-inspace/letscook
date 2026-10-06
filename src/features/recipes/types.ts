@@ -50,6 +50,8 @@ export interface Recipe {
   allergens?: string[];
   ingredients: Ingredient[];
   steps: RecipeStep[];
+  sourceUrl?: string;
+  videoUrl?: string;
   isFavorite?: boolean;
   createdAt: string;
   updatedAt: string;
