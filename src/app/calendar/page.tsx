@@ -226,8 +226,25 @@ export default function CalendarPage() {
   const scrollToToday = () => {
     if (todayRef.current) {
       todayRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (calendarView === "planning") {
+      setCalendarView("grid");
+      setTimeout(() => {
+        if (todayRef.current) {
+          todayRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
     }
   };
+
+  // Auto-focus on today date on initial mount and when switching views
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (todayRef.current) {
+        todayRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [calendarView]);
 
   const handleDayClick = (dateKey: string) => {
     setSelectedDate(dateKey);
@@ -306,36 +323,6 @@ export default function CalendarPage() {
         </button>
       </header>
 
-      {/* View Switcher Toggle: Planning (Agenda) vs Grille Mois */}
-      <div className="sticky top-[69px] z-20 bg-white/95 backdrop-blur-md px-5 py-2.5 border-b border-slate-100">
-        <div className="flex bg-slate-100/80 p-1 rounded-2xl max-w-sm mx-auto">
-          <button
-            type="button"
-            onClick={() => setCalendarView("planning")}
-            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              calendarView === "planning"
-                ? "bg-white text-[#181A20] shadow-xs"
-                : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            <List className="w-3.5 h-3.5 text-[#5DB534]" />
-            <span>Vue Planning</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setCalendarView("grid")}
-            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              calendarView === "grid"
-                ? "bg-white text-[#181A20] shadow-xs"
-                : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            <Grid className="w-3.5 h-3.5 text-[#5DB534]" />
-            <span>Grille Mois</span>
-          </button>
-        </div>
-      </div>
-
       {/* VIEW 1: VUE PLANNING (AGENDA - ONLY PLANNED MEAL DAYS) */}
       {calendarView === "planning" && (
         <div className="flex-1 px-4 pt-4 space-y-6 max-w-xl w-full mx-auto animate-in fade-in duration-200">
@@ -378,7 +365,11 @@ export default function CalendarPage() {
                 {/* List of planned days */}
                 <div className="space-y-3">
                   {days.map(({ dateKey, dayOfWeekShort, dayNumber, isToday, plans }) => (
-                    <div key={dateKey} className="flex items-start gap-3">
+                    <div
+                      key={dateKey}
+                      ref={isToday ? todayRef : null}
+                      className="flex items-start gap-3"
+                    >
                       {/* Left Column: Day info */}
                       <div className="w-12 pt-1 text-center shrink-0 flex flex-col items-center">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
@@ -497,7 +488,7 @@ export default function CalendarPage() {
       {calendarView === "grid" && (
         <div className="animate-in fade-in duration-200">
           {/* Weekdays Row (Sticky L M M J V S D) */}
-          <div className="sticky top-[120px] z-10 bg-white/95 backdrop-blur-md px-4 py-2 border-b border-slate-100 grid grid-cols-7 text-center max-w-xl mx-auto">
+          <div className="sticky top-[65px] z-10 bg-white/95 backdrop-blur-md px-4 py-2 border-b border-slate-100 grid grid-cols-7 text-center max-w-xl mx-auto">
             {WEEKDAYS.map((dayLetter, i) => (
               <span
                 key={i}
@@ -645,20 +636,44 @@ export default function CalendarPage() {
               </button>
             </div>
           </div>
-
-          {/* Quick "Aujourd'hui" Floating Pill */}
-          <div className="fixed bottom-24 left-5 z-30">
-            <button
-              type="button"
-              onClick={scrollToToday}
-              className="px-4 py-2 bg-white hover:bg-slate-50 active:scale-95 text-[#181A20] font-bold text-xs rounded-full border border-slate-200 shadow-md backdrop-blur-md flex items-center gap-1.5 transition-all cursor-pointer"
-            >
-              <CalendarIcon className="w-3.5 h-3.5 text-[#5DB534]" />
-              <span>Aujourd’hui</span>
-            </button>
-          </div>
         </div>
       )}
+
+      {/* Persistent Floating Action Buttons (FAB): Focus Aujourd'hui + Toggle Vue Planning / Vue Grille */}
+      <div className="fixed bottom-24 right-4 z-40 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        {/* Bouton rapide Aujourd'hui */}
+        <button
+          type="button"
+          onClick={scrollToToday}
+          className="h-11 px-3.5 bg-white/95 backdrop-blur-md hover:bg-white text-[#181A20] font-extrabold text-xs rounded-2xl border border-slate-200 shadow-lg shadow-black/8 flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+          title="Centrer sur aujourd'hui"
+        >
+          <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
+          <span>Aujourd’hui</span>
+        </button>
+
+        {/* FAB Toggle Vue (Planning vs Grille Mois) */}
+        <button
+          type="button"
+          onClick={() =>
+            setCalendarView((prev) => (prev === "planning" ? "grid" : "planning"))
+          }
+          className="h-11 px-4 bg-[#181A20] hover:bg-[#2C303B] text-white font-extrabold text-xs rounded-2xl shadow-xl shadow-black/15 flex items-center gap-2 active:scale-95 transition-all cursor-pointer border border-slate-800"
+          title="Changer de vue"
+        >
+          {calendarView === "planning" ? (
+            <>
+              <Grid className="w-4 h-4 text-[#5DB534]" />
+              <span>Vue Mois</span>
+            </>
+          ) : (
+            <>
+              <List className="w-4 h-4 text-[#5DB534]" />
+              <span>Vue Planning</span>
+            </>
+          )}
+        </button>
+      </div>
 
       {/* Plan a Meal Modal */}
       {isModalOpen && (
