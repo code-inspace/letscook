@@ -26,6 +26,7 @@ import {
   deleteShoppingItemFromList,
   clearCompletedShoppingItems,
   formatShoppingListForExport,
+  invalidateGroceriesSyncCooldown,
 } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
@@ -52,14 +53,7 @@ export default function GroceriesPage() {
     return [];
   });
 
-  const [isLoading, setIsLoading] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      const initial = getStoredShoppingItems(session?.id);
-      return initial.length === 0;
-    }
-    return true;
-  });
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const [newItemName, setNewItemName] = useState<string>("");
   const [newItemAmount, setNewItemAmount] = useState<string>("");
@@ -79,22 +73,19 @@ export default function GroceriesPage() {
   const isSyncingGroceriesRef = React.useRef<boolean>(false);
   const debounceGroceriesTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  const loadGroceries = useCallback(async (silent = true) => {
+  const loadGroceries = useCallback(async (force = false) => {
     const currentUserId = user?.id || getStoredUserSession()?.id;
     if (!currentUserId || isSyncingGroceriesRef.current) return;
     isSyncingGroceriesRef.current = true;
 
-    // 1. Instant local load
-    const cached = getStoredShoppingItems(currentUserId);
-    if (cached.length > 0) {
-      setItems(cached);
-      setIsLoading(false);
-    }
-
-    // 2. Full synchronization with database upcoming meal plans + custom items
     try {
-      const fullList = await syncAndFetchShoppingList(currentUserId);
-      setItems(fullList);
+      const fullList = await syncAndFetchShoppingList(currentUserId, force);
+      setItems((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(fullList)) {
+          return prev;
+        }
+        return fullList;
+      });
     } catch (err) {
       console.warn("loadGroceries sync error:", err);
     } finally {
@@ -104,25 +95,30 @@ export default function GroceriesPage() {
   }, [user?.id]);
 
   useEffect(() => {
-    loadGroceries();
+    loadGroceries(false);
 
     const handleDebouncedUpdate = () => {
       if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
       debounceGroceriesTimerRef.current = setTimeout(() => {
-        if (user?.id) {
-          const cached = getStoredShoppingItems(user.id);
-          if (cached.length > 0) {
-            setItems(cached);
-          }
+        const currentUserId = user?.id || getStoredUserSession()?.id;
+        if (currentUserId) {
+          const cached = getStoredShoppingItems(currentUserId);
+          setItems((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(cached)) {
+              return prev;
+            }
+            return cached;
+          });
         }
-      }, 300);
+      }, 150);
     };
 
     const handleMealPlansUpdate = () => {
+      invalidateGroceriesSyncCooldown();
       if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
       debounceGroceriesTimerRef.current = setTimeout(() => {
         loadGroceries(true);
-      }, 300);
+      }, 150);
     };
 
     window.addEventListener("letscook:groceries-updated", handleDebouncedUpdate);
@@ -206,22 +202,41 @@ export default function GroceriesPage() {
     await toggleShoppingItemInDb(item.id, newChecked, user.id);
   };
 
+  const isAddingItemRef = React.useRef<boolean>(false);
+
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItemName.trim() || !user?.id) return;
+    const cleanName = newItemName.trim();
+    if (!cleanName || !user?.id || isAddingItemRef.current) return;
+    isAddingItemRef.current = true;
 
     const amountNum = newItemAmount ? parseFloat(newItemAmount) : null;
-    const added = await addCustomShoppingItem(
-      newItemName,
-      amountNum,
-      newItemUnit || null,
-      user.id
-    );
+    const unitStr = newItemUnit.trim() || null;
 
-    setItems((prev) => [added, ...prev]);
     setNewItemName("");
     setNewItemAmount("");
     setNewItemUnit("");
+
+    try {
+      const added = await addCustomShoppingItem(
+        cleanName,
+        amountNum,
+        unitStr,
+        user.id
+      );
+
+      // Safe state update: avoid duplicate insertion if event listener already updated state
+      setItems((prev) => {
+        if (prev.some((i) => i.id === added.id)) {
+          return prev;
+        }
+        return [added, ...prev];
+      });
+    } catch (err) {
+      console.error("handleAddItem error:", err);
+    } finally {
+      isAddingItemRef.current = false;
+    }
   };
 
   const handleDelete = async (item: ShoppingItem) => {

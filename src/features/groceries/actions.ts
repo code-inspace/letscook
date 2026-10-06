@@ -9,6 +9,12 @@ const GLOBAL_GROCERIES_CACHE_KEY = "letscook_shopping_items_global_cache";
 const EXCLUDED_ITEMS_KEY_PREFIX = "letscook_excluded_groceries_";
 
 let memoryShoppingItemsCache: ShoppingItem[] | null = null;
+let lastShoppingListSyncTime = 0;
+const SYNC_COOLDOWN_MS = 25000; // 25 seconds cooldown to prevent constant refetching on tab switch
+
+export function invalidateGroceriesSyncCooldown(): void {
+  lastShoppingListSyncTime = 0;
+}
 
 export function getStoredShoppingItems(userId?: string): ShoppingItem[] {
   if (typeof window === "undefined") return [];
@@ -68,17 +74,27 @@ export function getStoredShoppingItems(userId?: string): ShoppingItem[] {
   return [];
 }
 
-export function saveStoredShoppingItems(items: ShoppingItem[], userId?: string): void {
+export function saveStoredShoppingItems(
+  items: ShoppingItem[],
+  userId?: string,
+  notify = true
+): void {
   if (typeof window === "undefined") return;
+
+  const previousJson = JSON.stringify(memoryShoppingItemsCache || []);
+  const newJson = JSON.stringify(items);
+  const isDifferent = previousJson !== newJson;
+
   memoryShoppingItemsCache = items;
 
   try {
-    const json = JSON.stringify(items);
     if (userId) {
-      localStorage.setItem(`${SHOPPING_ITEMS_KEY_PREFIX}${userId}`, json);
+      localStorage.setItem(`${SHOPPING_ITEMS_KEY_PREFIX}${userId}`, newJson);
     }
-    localStorage.setItem(GLOBAL_GROCERIES_CACHE_KEY, json);
-    window.dispatchEvent(new CustomEvent("letscook:groceries-updated"));
+    localStorage.setItem(GLOBAL_GROCERIES_CACHE_KEY, newJson);
+    if (notify && isDifferent) {
+      window.dispatchEvent(new CustomEvent("letscook:groceries-updated"));
+    }
   } catch (err) {
     console.warn("saveStoredShoppingItems error:", err);
   }
@@ -128,8 +144,19 @@ export function normalizeIngredientKey(name: string): string {
  * 2. Mutualizes upcoming meal plan ingredients (date >= today).
  * 3. Persists all rows into public.shopping_items in Supabase.
  */
-export async function syncAndFetchShoppingList(userId: string): Promise<ShoppingItem[]> {
+export async function syncAndFetchShoppingList(
+  userId: string,
+  force = false
+): Promise<ShoppingItem[]> {
   if (!userId) return [];
+
+  // If sync was performed recently and not forced, return cached items immediately
+  if (!force && Date.now() - lastShoppingListSyncTime < SYNC_COOLDOWN_MS) {
+    const cached = getStoredShoppingItems(userId);
+    if (cached.length > 0) {
+      return cached;
+    }
+  }
 
   const supabase = createClient();
   const todayStr = new Date().toISOString().split("T")[0];
@@ -275,6 +302,7 @@ export async function syncAndFetchShoppingList(userId: string): Promise<Shopping
     console.warn("syncAndFetchShoppingList DB persist error:", err);
   }
 
+  lastShoppingListSyncTime = Date.now();
   saveStoredShoppingItems(fullList, userId);
   return fullList;
 }
@@ -335,7 +363,8 @@ export async function addCustomShoppingItem(
   };
 
   const current = getStoredShoppingItems(userId);
-  saveStoredShoppingItems([newItem, ...current], userId);
+  const filtered = current.filter((i) => i.id !== newItem.id);
+  saveStoredShoppingItems([newItem, ...filtered], userId);
 
   try {
     const supabase = createClient();
