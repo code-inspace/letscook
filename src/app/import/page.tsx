@@ -110,7 +110,7 @@ export default function AIImportPage() {
         title: raw.title || "Recette importée",
         subtitle: raw.subtitle || undefined,
         category: raw.category || "Main Dishes",
-        imageUrl: raw.imageUrl || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=800",
+        imageUrl: raw.imageUrl || "",
         prepTimeMinutes: raw.prepTimeMinutes || 30,
         difficulty: raw.difficulty || "Easy",
         rating: raw.rating || 4.8,

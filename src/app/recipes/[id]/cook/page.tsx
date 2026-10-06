@@ -205,6 +205,9 @@ export default function CookingStepPage() {
           <img
             src={stepImage}
             alt={currentStep.title}
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
             className="w-full h-full object-cover object-center filter brightness-[0.75] transition-all duration-700"
           />
         ) : (

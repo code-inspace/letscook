@@ -257,7 +257,51 @@ export default function RecipeDetailPage() {
     }
   };
 
-  // Generate Main Recipe Image via AI
+  // Quick direct regeneration of recipe main photo from the page plate
+  const handleQuickRegenerateMainPhoto = async () => {
+    if (!recipe || !user?.id || isGeneratingMainImage) return;
+    setIsGeneratingMainImage(true);
+    try {
+      const ingSummary = recipe.ingredients
+        ?.filter((i) => i.name)
+        .slice(0, 5)
+        .map((i) => i.name)
+        .join(", ");
+
+      const res = await fetch("/api/ai/generate-recipe-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: recipe.title,
+          description: recipe.subtitle,
+          type: "main",
+          ingredientsSummary: ingSummary,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.imageUrl) {
+        const updated: Recipe = {
+          ...recipe,
+          imageUrl: data.imageUrl,
+          updatedAt: new Date().toISOString(),
+        };
+        await saveRecipeToDb(updated, user.id);
+        setRecipe(updated);
+        setEditImageUrl(data.imageUrl);
+        setPlanSuccessToast("Photo générée par IA et enregistrée avec succès !");
+        setTimeout(() => setPlanSuccessToast(null), 3500);
+      } else {
+        alert(data.error || "Impossible de générer l'image par IA.");
+      }
+    } catch (err: any) {
+      console.error("handleQuickRegenerateMainPhoto error:", err);
+      alert("Erreur lors de la génération IA: " + (err?.message || "Échec réseau"));
+    } finally {
+      setIsGeneratingMainImage(false);
+    }
+  };
+
+  // Generate Main Recipe Image via AI (in Edit Modal)
   const handleGenerateMainImageAI = async () => {
     if (!editTitle.trim()) return;
     setIsGeneratingMainImage(true);
@@ -279,11 +323,14 @@ export default function RecipeDetailPage() {
         }),
       });
       const data = await res.json();
-      if (data.imageUrl) {
+      if (res.ok && data.imageUrl) {
         setEditImageUrl(data.imageUrl);
+      } else {
+        alert(data.error || "Impossible de générer l'image par IA.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("handleGenerateMainImageAI error:", err);
+      alert("Erreur IA: " + (err?.message || "Échec"));
     } finally {
       setIsGeneratingMainImage(false);
     }
@@ -306,11 +353,14 @@ export default function RecipeDetailPage() {
         }),
       });
       const data = await res.json();
-      if (data.imageUrl) {
+      if (res.ok && data.imageUrl) {
         handleUpdateStep(stepIndex, "imageUrl", data.imageUrl);
+      } else {
+        alert(data.error || "Impossible de générer l'image de cette étape par IA.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("handleGenerateStepImageAI error:", err);
+      alert("Erreur IA: " + (err?.message || "Échec"));
     } finally {
       setGeneratingStepIdx(null);
     }
@@ -493,17 +543,53 @@ export default function RecipeDetailPage() {
 
       {/* Hero Circular Dish Plate with Cutout */}
       <div className="relative w-full flex flex-col items-center px-6 mt-1">
-        <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center">
+        <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center group">
           <div className="absolute inset-4 rounded-full bg-black/12 blur-2xl translate-y-6 scale-95 pointer-events-none" />
           <div className="relative w-full h-full rounded-full p-2.5 bg-gradient-to-b from-white/95 via-white/70 to-slate-200/50 shadow-[0_20px_40px_rgba(0,0,0,0.12)] border border-white">
-            <div className="w-full h-full rounded-full overflow-hidden relative shadow-inner bg-slate-100">
-              <img
-                src={recipe.imageUrl}
-                alt={recipe.title}
-                className="w-full h-full object-cover object-center"
-              />
+            <div className="w-full h-full rounded-full overflow-hidden relative shadow-inner bg-slate-100 flex items-center justify-center">
+              {recipe.imageUrl ? (
+                <img
+                  src={recipe.imageUrl}
+                  alt={recipe.title}
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                  className={`w-full h-full object-cover object-center transition-all duration-300 ${
+                    isGeneratingMainImage ? "scale-105 blur-xs filter brightness-75" : ""
+                  }`}
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 text-center">
+                  <ChefHat className="w-12 h-12 text-[#5DB534] mb-2" />
+                  <span className="text-xs font-bold text-slate-600">Aucune photo</span>
+                </div>
+              )}
+
+              {/* Loading Spinner during Generation */}
+              {isGeneratingMainImage && (
+                <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex flex-col items-center justify-center text-white text-xs font-bold animate-in fade-in">
+                  <Loader2 className="w-8 h-8 animate-spin text-[#5DB534] mb-2" />
+                  <span>Génération photo...</span>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Quick Photo Regeneration Floating Pill */}
+          <button
+            type="button"
+            onClick={handleQuickRegenerateMainPhoto}
+            disabled={isGeneratingMainImage}
+            className="absolute bottom-2 right-4 z-10 px-3.5 py-1.5 bg-white/95 hover:bg-white text-[#181A20] rounded-full text-xs font-extrabold shadow-md border border-slate-200/80 backdrop-blur-md flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+            title="Régénérer la photo du plat"
+          >
+            {isGeneratingMainImage ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#5DB534]" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5 text-[#5DB534]" />
+            )}
+            <span>Régénérer photo</span>
+          </button>
         </div>
       </div>
 

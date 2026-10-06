@@ -26,23 +26,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Construire un prompt culinaire professionnel en anglais
-    let prompt = "";
+    const cleanTitle = (title || description || "Plat cuisiné").replace(/[^\w\s\u00C0-\u017F-]/g, "").trim();
+
+    // 1. Prompt culinaire professionnel en anglais pour l'IA
+    let promptText = "";
     if (type === "step") {
-      prompt = `Professional culinary step-by-step cooking photography: step ${stepNumber || 1} for recipe "${title}". Action: ${description}. Close up cooking preparation shot, warm kitchen lighting, hyperrealistic, gourmet food styling, 4k`;
+      promptText = `Professional culinary cooking photography, step ${stepNumber || 1} for ${cleanTitle}: ${description || "cooking action"}. Close-up cooking process shot, warm bright kitchen, gourmet food styling, 4k, hyperrealistic`;
     } else {
-      prompt = `Gourmet culinary photography of ${title}${ingredientsSummary ? ` made with ${ingredientsSummary}` : ""}, served on an elegant plate, restaurant quality, warm natural lighting, shallow depth of field, appetizing, delicious, 4k`;
+      promptText = `Delicious culinary food photography of ${cleanTitle}${ingredientsSummary ? ` with ${ingredientsSummary}` : ""}, served on a modern ceramic plate in a gourmet restaurant, warm natural lighting, shallow depth of field, high detail, 4k`;
     }
 
     const geminiApiKey =
       process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-    // 1. Essai avec les modèles d'image Gemini si disponibles
+    const attemptedErrors: string[] = [];
+
+    // 2. Essai avec les modèles d'image Gemini
     if (geminiApiKey) {
       const imageModels = [
         "gemini-2.5-flash-image",
         "gemini-3.1-flash-image",
         "gemini-3-pro-image",
+        "gemini-3.1-flash-lite-image",
       ];
 
       for (const model of imageModels) {
@@ -52,9 +57,9 @@ export async function POST(req: NextRequest) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: `Generate an image: ${prompt}` }] }],
+              contents: [{ parts: [{ text: `Generate an image of: ${promptText}` }] }],
             }),
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(12000),
           });
 
           if (res.ok) {
@@ -67,27 +72,35 @@ export async function POST(req: NextRequest) {
               const mime = inline.mime_type || inline.mimeType || "image/jpeg";
               return NextResponse.json({
                 imageUrl: `data:${mime};base64,${inline.data}`,
-                provider: `Gemini Image (${model})`,
+                provider: `Gemini AI (${model})`,
               });
             }
+          } else {
+            const errJson = await res.json().catch(() => ({}));
+            attemptedErrors.push(`${model} (HTTP ${res.status}): ${errJson?.error?.message || res.statusText}`);
           }
-        } catch {}
+        } catch (mErr: any) {
+          attemptedErrors.push(`${model}: ${mErr?.message || mErr}`);
+        }
       }
+    } else {
+      attemptedErrors.push("Aucune clé GEMINI_API_KEY configurée");
     }
 
-    // 2. Fallback ultra-rapide et haute qualité Flux / Pollinations AI
-    const encodedPrompt = encodeURIComponent(prompt.substring(0, 300));
-    const seed = Math.floor(Math.random() * 1000000);
-    const generatedUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?seed=${seed}&width=1024&height=768&nologo=true&model=flux`;
-
-    return NextResponse.json({
-      imageUrl: generatedUrl,
-      provider: "Flux Culinary AI",
-    });
+    // 3. Aucune IA n'a pu générer l'image : renvoyer une erreur explicite SANS substitut stock
+    console.warn("AI Image Generation failed:", attemptedErrors);
+    return NextResponse.json(
+      {
+        error:
+          "La génération d'image par IA n'a pas pu aboutir (quota de génération d'image Google Gemini dépassé ou indisponible). Vous pouvez uploader une photo depuis votre appareil ou réessayer ultérieurement.",
+        details: attemptedErrors,
+      },
+      { status: 503 }
+    );
   } catch (err: any) {
     console.error("generate-recipe-image error:", err);
     return NextResponse.json(
-      { error: err?.message || "Erreur lors de la génération d'image" },
+      { error: err?.message || "Erreur lors de la génération d'image par IA." },
       { status: 500 }
     );
   }
