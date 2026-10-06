@@ -394,7 +394,7 @@ export async function addCustomShoppingItem(
 
   try {
     const supabase = createClient();
-    await supabase.from("shopping_items").insert([
+    await supabase.from("shopping_items").upsert([
       {
         id: newItem.id,
         user_id: userId,
@@ -406,7 +406,7 @@ export async function addCustomShoppingItem(
         category: newItem.category,
         updated_at: new Date().toISOString(),
       },
-    ]);
+    ], { onConflict: "id" });
 
     // Également insérer l'ingrédient dans la table public.ingredients si nouveau
     const cleanName = newItem.name.trim();
@@ -434,13 +434,16 @@ export async function addCustomShoppingItem(
 }
 
 export async function toggleShoppingItemInDb(
-  itemId: string,
+  itemOrId: string | ShoppingItem,
   newChecked: boolean,
   userId: string
 ): Promise<void> {
   if (!userId) return;
 
+  const itemId = typeof itemOrId === "string" ? itemOrId : itemOrId.id;
   const current = getStoredShoppingItems(userId);
+  const targetItem = current.find((i) => i.id === itemId) || (typeof itemOrId === "object" ? itemOrId : null);
+
   const updated = current.map((i) =>
     i.id === itemId ? { ...i, checked: newChecked } : i
   );
@@ -448,11 +451,30 @@ export async function toggleShoppingItemInDb(
 
   try {
     const supabase = createClient();
-    await supabase
-      .from("shopping_items")
-      .update({ checked: newChecked, updated_at: new Date().toISOString() })
-      .eq("id", itemId)
-      .eq("user_id", userId);
+    if (targetItem) {
+      const payload = {
+        id: targetItem.id,
+        user_id: userId,
+        name: targetItem.name,
+        amount: targetItem.amount || null,
+        unit: targetItem.unit || null,
+        checked: newChecked,
+        is_custom: Boolean(targetItem.isCustom),
+        recipe_id: targetItem.recipeId || null,
+        recipe_title: targetItem.recipeTitle || null,
+        meal_plan_id: targetItem.mealPlanId || null,
+        meal_plan_date: targetItem.mealPlanDate || null,
+        category: targetItem.category || "Articles divers",
+        updated_at: new Date().toISOString(),
+      };
+      await supabase.from("shopping_items").upsert([payload], { onConflict: "id" });
+    } else {
+      await supabase
+        .from("shopping_items")
+        .update({ checked: newChecked, updated_at: new Date().toISOString() })
+        .eq("id", itemId)
+        .eq("user_id", userId);
+    }
   } catch (err) {
     console.warn("toggleShoppingItemInDb error:", err);
   }
@@ -512,7 +534,36 @@ export async function deleteShoppingItemFromList(
 export async function clearCompletedShoppingItems(userId: string): Promise<void> {
   if (!userId) return;
   const current = getStoredShoppingItems(userId);
+  const checkedItems = current.filter((i) => i.checked);
   const unchecked = current.filter((i) => !i.checked);
+
+  // Exclude completed auto-recipe ingredients so they don't immediately respawn
+  const excluded = getStoredExcludedIngredients(userId);
+  const newExcluded = [...excluded];
+  for (const item of checkedItems) {
+    if (!item.isCustom) {
+      const normKey = item.normalizedKey || normalizeIngredientKey(item.name);
+      if (item.recipeSources && item.recipeSources.length > 0) {
+        for (const source of item.recipeSources) {
+          if (source.mealPlanId) {
+            const k1 = `${source.mealPlanId}_${normKey}`;
+            const k2 = `${source.mealPlanId}_${item.name.toLowerCase().trim()}`;
+            if (!newExcluded.includes(k1)) newExcluded.push(k1);
+            if (!newExcluded.includes(k2)) newExcluded.push(k2);
+          }
+        }
+      } else if (item.mealPlanId) {
+        const k1 = `${item.mealPlanId}_${normKey}`;
+        const k2 = `${item.mealPlanId}_${item.name.toLowerCase().trim()}`;
+        if (!newExcluded.includes(k1)) newExcluded.push(k1);
+        if (!newExcluded.includes(k2)) newExcluded.push(k2);
+      }
+    }
+  }
+  if (newExcluded.length > excluded.length) {
+    saveStoredExcludedIngredients(newExcluded, userId);
+  }
+
   saveStoredShoppingItems(unchecked, userId);
 
   try {
@@ -524,6 +575,42 @@ export async function clearCompletedShoppingItems(userId: string): Promise<void>
       .eq("checked", true);
   } catch (err) {
     console.warn("clearCompletedShoppingItems error:", err);
+  }
+}
+
+export async function saveEntireShoppingListToDb(
+  items: ShoppingItem[],
+  userId: string
+): Promise<void> {
+  if (!userId) return;
+
+  saveStoredShoppingItems(items, userId);
+
+  try {
+    const supabase = createClient();
+    const dbPayloads = items.map((item) => ({
+      id: item.id,
+      user_id: userId,
+      name: item.name,
+      amount: item.amount || null,
+      unit: item.unit || null,
+      checked: Boolean(item.checked),
+      is_custom: Boolean(item.isCustom),
+      recipe_id: item.recipeId || null,
+      recipe_title: item.recipeTitle || null,
+      meal_plan_id: item.mealPlanId || null,
+      meal_plan_date: item.mealPlanDate || null,
+      category: item.category || "Articles divers",
+      updated_at: new Date().toISOString(),
+    }));
+
+    if (dbPayloads.length > 0) {
+      await supabase
+        .from("shopping_items")
+        .upsert(dbPayloads, { onConflict: "id" });
+    }
+  } catch (err) {
+    console.warn("saveEntireShoppingListToDb DB error:", err);
   }
 }
 

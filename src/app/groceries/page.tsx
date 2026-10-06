@@ -191,7 +191,8 @@ export default function GroceriesPage() {
 
   // Immediate toggle of checked status
   const handleToggle = async (item: ShoppingItem) => {
-    if (!user?.id) return;
+    const currentUserId = user?.id || getStoredUserSession()?.id;
+    if (!currentUserId) return;
     const newChecked = !item.checked;
 
     // Optimistic UI update
@@ -199,7 +200,7 @@ export default function GroceriesPage() {
       prev.map((i) => (i.id === item.id ? { ...i, checked: newChecked } : i))
     );
 
-    await toggleShoppingItemInDb(item.id, newChecked, user.id);
+    await toggleShoppingItemInDb(item, newChecked, currentUserId);
   };
 
   const isAddingItemRef = React.useRef<boolean>(false);
@@ -207,7 +208,8 @@ export default function GroceriesPage() {
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newItemName.trim();
-    if (!cleanName || !user?.id || isAddingItemRef.current) return;
+    const currentUserId = user?.id || getStoredUserSession()?.id;
+    if (!cleanName || !currentUserId || isAddingItemRef.current) return;
     isAddingItemRef.current = true;
 
     const amountNum = newItemAmount ? parseFloat(newItemAmount) : null;
@@ -222,7 +224,7 @@ export default function GroceriesPage() {
         cleanName,
         amountNum,
         unitStr,
-        user.id
+        currentUserId
       );
 
       // Safe state update: avoid duplicate insertion if event listener already updated state
@@ -240,15 +242,17 @@ export default function GroceriesPage() {
   };
 
   const handleDelete = async (item: ShoppingItem) => {
-    if (!user?.id) return;
+    const currentUserId = user?.id || getStoredUserSession()?.id;
+    if (!currentUserId) return;
     setItems((prev) => prev.filter((i) => i.id !== item.id));
-    await deleteShoppingItemFromList(item, user.id);
+    await deleteShoppingItemFromList(item, currentUserId);
   };
 
   const handleClearCompleted = async () => {
-    if (!user?.id) return;
+    const currentUserId = user?.id || getStoredUserSession()?.id;
+    if (!currentUserId) return;
     setItems((prev) => prev.filter((i) => !i.checked));
-    await clearCompletedShoppingItems(user.id);
+    await clearCompletedShoppingItems(currentUserId);
   };
 
   // Filter items based on active recipe filter selection & re-calculate quantities dynamically
