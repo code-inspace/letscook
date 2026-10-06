@@ -447,7 +447,7 @@ export default function AIImportPage() {
             <span>Importer une Recette</span>
           </h1>
           <span className="text-[10px] text-[#8E929E] font-medium">
-            Lien Web direct ou Photos OCR
+            Liens, Photos ou Vidéos
           </span>
         </div>
 
@@ -472,7 +472,7 @@ export default function AIImportPage() {
             }`}
           >
             <Globe className="w-4 h-4 text-[#5DB534]" />
-            <span className="truncate">Lien Web & Réseaux</span>
+            <span>Liens</span>
           </button>
           <button
             type="button"
@@ -484,7 +484,7 @@ export default function AIImportPage() {
             }`}
           >
             <Camera className="w-4 h-4 text-[#5DB534]" />
-            <span className="truncate">Photos Fiches (OCR)</span>
+            <span>Photos</span>
           </button>
           <button
             type="button"
@@ -496,7 +496,7 @@ export default function AIImportPage() {
             }`}
           >
             <Film className="w-4 h-4 text-[#5DB534]" />
-            <span className="truncate">Vidéo / Reel (IA)</span>
+            <span>Vidéos</span>
           </button>
         </div>
 
