@@ -271,36 +271,53 @@ Réponds STRICTEMENT avec ce JSON valide :
   ]
 }`;
 
-      const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
-      const geminiRes = await fetch(geminiEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: socialPrompt }] }],
-          generationConfig: {
-            response_mime_type: "application/json",
-            temperature: 0.2,
-          },
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
+      const candidateModels = [
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
+        "gemini-3.8-flash",
+      ];
 
-      if (geminiRes.ok) {
-        const geminiData = await geminiRes.json();
-        const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (rawText) {
-          const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-          const parsed = JSON.parse(cleanedText);
-          parsed.sourceUrl = url;
-          if (!parsed.imageUrl && socialThumbnail) parsed.imageUrl = socialThumbnail;
-          parsed.servingsBase = parsed.servingsBase || 6;
-
-          log(`Succès : Recette "${parsed.title}" extraite de la vidéo avec ${parsed.ingredients?.length || 0} ingrédients.`);
-          return NextResponse.json({
-            recipe: parsed,
-            logs: serverLogs,
-            provider: isInstagram ? "Instagram Reel AI Extractor" : isTikTok ? "TikTok AI Extractor" : "YouTube Shorts AI",
+      for (const model of candidateModels) {
+        try {
+          log(`Génération IA avec ${model}...`);
+          const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+          const geminiRes = await fetch(geminiEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: socialPrompt }] }],
+              generationConfig: {
+                response_mime_type: "application/json",
+                temperature: 0.2,
+              },
+            }),
+            signal: AbortSignal.timeout(20000),
           });
+
+          if (geminiRes.ok) {
+            const geminiData = await geminiRes.json();
+            const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (rawText) {
+              const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+              const parsed = JSON.parse(cleanedText);
+              parsed.sourceUrl = url;
+              if (!parsed.imageUrl && socialThumbnail) parsed.imageUrl = socialThumbnail;
+              parsed.servingsBase = parsed.servingsBase || 6;
+
+              log(`Succès : Recette "${parsed.title}" extraite de la vidéo avec ${parsed.ingredients?.length || 0} ingrédients.`);
+              return NextResponse.json({
+                recipe: parsed,
+                logs: serverLogs,
+                provider: isInstagram ? `Instagram Reel AI (${model})` : isTikTok ? `TikTok AI (${model})` : `YouTube Shorts AI (${model})`,
+              });
+            }
+          } else {
+            log(`Modèle ${model} a retourné HTTP ${geminiRes.status}`);
+          }
+        } catch (modelErr) {
+          log(`Erreur sur ${model}: ${modelErr}`);
         }
       }
 
@@ -529,36 +546,47 @@ Réponds STRICTEMENT avec ce JSON valide :
   ]
 }`;
 
-    const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
-    const geminiRes = await fetch(geminiEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          response_mime_type: "application/json",
-          temperature: 0.1,
-        },
-      }),
-      signal: AbortSignal.timeout(25000),
-    });
+    const candidateWebModels = [
+      "gemini-flash-lite-latest",
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
+    ];
 
-    if (geminiRes.ok) {
-      const geminiData = await geminiRes.json();
-      const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (rawText) {
-        const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-        const parsed = JSON.parse(cleanedText);
-        parsed.sourceUrl = url;
-        if (!parsed.imageUrl && ogImage) parsed.imageUrl = ogImage;
-
-        log(`Succès Gemini : Recette "${parsed.title}" extraite avec succès.`);
-        return NextResponse.json({
-          recipe: parsed,
-          logs: serverLogs,
-          provider: "Google Gemini Web AI",
+    for (const model of candidateWebModels) {
+      try {
+        const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+        const geminiRes = await fetch(geminiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              response_mime_type: "application/json",
+              temperature: 0.1,
+            },
+          }),
+          signal: AbortSignal.timeout(20000),
         });
-      }
+
+        if (geminiRes.ok) {
+          const geminiData = await geminiRes.json();
+          const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText) {
+            const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+            const parsed = JSON.parse(cleanedText);
+            parsed.sourceUrl = url;
+            if (!parsed.imageUrl && ogImage) parsed.imageUrl = ogImage;
+
+            log(`Succès Gemini (${model}) : Recette "${parsed.title}" extraite avec succès.`);
+            return NextResponse.json({
+              recipe: parsed,
+              logs: serverLogs,
+              provider: `Google Gemini Web AI (${model})`,
+            });
+          }
+        }
+      } catch {}
     }
 
     throw new Error("Impossible d'extraire une recette valide depuis cette page web.");

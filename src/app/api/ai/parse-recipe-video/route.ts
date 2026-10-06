@@ -80,59 +80,68 @@ Réponds STRICTEMENT avec ce JSON valide :
   ]
 }`;
 
-    log("Envoi de la vidéo au modèle multimodal Google Gemini 2.5 Flash...");
+    log("Envoi de la vidéo au modèle multimodal Google Gemini...");
 
-    const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
-    const geminiRes = await fetch(geminiEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
+    const candidateVideoModels = [
+      "gemini-flash-lite-latest",
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
+    ];
+
+    for (const model of candidateVideoModels) {
+      try {
+        log(`Tentative d'analyse vidéo avec ${model}...`);
+        const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+        const geminiRes = await fetch(geminiEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
               {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: base64Data,
-                },
+                parts: [
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: base64Data,
+                    },
+                  },
+                  { text: prompt },
+                ],
               },
-              { text: prompt },
             ],
-          },
-        ],
-        generationConfig: {
-          response_mime_type: "application/json",
-          temperature: 0.1,
-        },
-      }),
-      signal: AbortSignal.timeout(50000),
-    });
+            generationConfig: {
+              response_mime_type: "application/json",
+              temperature: 0.1,
+            },
+          }),
+          signal: AbortSignal.timeout(45000),
+        });
 
-    if (!geminiRes.ok) {
-      const errBody = await geminiRes.text();
-      log(`Erreur API Gemini (HTTP ${geminiRes.status}): ${errBody}`);
-      throw new Error(`Échec de l'analyse vidéo par Gemini (HTTP ${geminiRes.status}).`);
+        if (geminiRes.ok) {
+          const geminiData = await geminiRes.json();
+          const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText) {
+            const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+            const parsedRecipe = JSON.parse(cleanedText);
+            parsedRecipe.id = `recipe_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+            parsedRecipe.servingsBase = parsedRecipe.servingsBase || 6;
+
+            log(`Analyse vidéo réussie (${model}) : "${parsedRecipe.title}" (${parsedRecipe.ingredients?.length || 0} ingrédients, ${parsedRecipe.steps?.length || 0} étapes).`);
+
+            return NextResponse.json({
+              recipe: parsedRecipe,
+              logs: serverLogs,
+              provider: `Google Gemini Multimodal Video AI (${model})`,
+            });
+          }
+        }
+      } catch (err: any) {
+        log(`Erreur sur ${model}: ${err?.message || err}`);
+      }
     }
 
-    const geminiData = await geminiRes.json();
-    const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!rawText) {
-      throw new Error("Gemini n'a renvoyé aucun résultat textuel.");
-    }
-
-    const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-    const parsedRecipe = JSON.parse(cleanedText);
-    parsedRecipe.id = `recipe_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    parsedRecipe.servingsBase = parsedRecipe.servingsBase || 6;
-
-    log(`Analyse vidéo réussie : "${parsedRecipe.title}" (${parsedRecipe.ingredients?.length || 0} ingrédients, ${parsedRecipe.steps?.length || 0} étapes).`);
-
-    return NextResponse.json({
-      recipe: parsedRecipe,
-      logs: serverLogs,
-      provider: "Google Gemini Multimodal Video AI",
-    });
+    throw new Error("Échec de l'analyse vidéo par les modèles d'IA disponibles.");
   } catch (err: any) {
     log(`Erreur globale analyse vidéo: ${err?.message || err}`);
     return NextResponse.json(

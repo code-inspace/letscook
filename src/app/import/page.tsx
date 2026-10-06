@@ -108,12 +108,12 @@ export default function AIImportPage() {
       });
 
       const data = await res.json();
-      if (!res.ok || !data.recipe) {
-        throw new Error(data.error || "Impossible d'importer la recette depuis ce lien.");
-      }
-
       if (data.logs && Array.isArray(data.logs)) {
         data.logs.forEach((l: string) => addLog(l));
+      }
+
+      if (!res.ok || !data.recipe) {
+        throw new Error(data.error || "Impossible d'importer la recette depuis ce lien.");
       }
 
       const raw = data.recipe;
@@ -209,12 +209,12 @@ export default function AIImportPage() {
       });
 
       const data = await res.json();
-      if (!res.ok || !data.recipe) {
-        throw new Error(data.error || "Échec de l'analyse vidéo.");
-      }
-
       if (data.logs && Array.isArray(data.logs)) {
         data.logs.forEach((l: string) => addLog(l));
+      }
+
+      if (!res.ok || !data.recipe) {
+        throw new Error(data.error || "Échec de l'analyse vidéo.");
       }
 
       const raw = data.recipe;
