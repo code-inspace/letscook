@@ -252,11 +252,12 @@ INSTRUCTIONS CRITIQUES :
 2. Identifie tous les ingrédients, condiments et quantités indiqués dans la description ou usuels pour ce plat. Calibre les quantités par défaut pour 6 personnes.
 3. Rédige les étapes de préparation chronologiques, claires et détaillées.
 4. Détermine le temps total de préparation, le niveau de difficulté ("Easy", "Medium" ou "Hard") et la catégorie adaptée.
+5. TRADUCTION OBLIGATOIRE EN FRANÇAIS : Si le texte d'origine, le titre, les ingrédients ou les étapes sont en anglais (ou toute autre langue), TRADUIS TOUT INTÉGRALEMENT EN FRANÇAIS fluide et soigné (titre en français, noms des ingrédients traduits en français, unités métriques usuelles [g, ml, c. à soupe, c. à café, gousses...], étapes en français). Tout le JSON renvoyé doit être 100% en français.
 
 Réponds STRICTEMENT avec ce JSON valide :
 {
-  "title": "Nom de la recette",
-  "subtitle": "Courte description alléchante",
+  "title": "Nom de la recette en français",
+  "subtitle": "Courte description alléchante en français",
   "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads",
   "imageUrl": "${socialThumbnail}",
   "prepTimeMinutes": 30,
@@ -264,10 +265,10 @@ Réponds STRICTEMENT avec ce JSON valide :
   "rating": 5.0,
   "servingsBase": 6,
   "ingredients": [
-    { "id": "ing_1", "name": "Nom ingrédient", "amount": 200, "unit": "g" }
+    { "id": "ing_1", "name": "Nom ingrédient en français", "amount": 200, "unit": "g" }
   ],
   "steps": [
-    { "stepNumber": 1, "title": "Étape 1", "description": "Instructions détaillées...", "durationMinutes": 5 }
+    { "stepNumber": 1, "title": "Étape 1", "description": "Instructions détaillées en français...", "durationMinutes": 5 }
   ]
 }`;
 
@@ -474,7 +475,7 @@ Réponds STRICTEMENT avec ce JSON valide :
         else if (/salade/i.test(catStr)) category = "Salads";
       }
 
-      const parsedRecipe = {
+      const parsedRecipe: any = {
         title: recipeSchema.name || ogTitle || "Recette importée",
         subtitle: recipeSchema.description || ogDesc || undefined,
         category,
@@ -484,13 +485,101 @@ Réponds STRICTEMENT avec ce JSON valide :
         rating: recipeSchema.aggregateRating?.ratingValue
           ? parseFloat(recipeSchema.aggregateRating.ratingValue)
           : 4.8,
-        servingsBase: parseServings(recipeSchema.recipeYield),
+        servingsBase: parseServings(recipeSchema.recipeYield) || 6,
         ingredients,
         steps,
         sourceUrl: url,
       };
 
-      log(`Recette analysée avec succès: "${parsedRecipe.title}" (${ingredients.length} ingrédients, ${steps.length} étapes).`);
+      // Si la recette JSON-LD est en anglais ou dans une autre langue, on la traduit automatiquement en français
+      const sampleText = `${parsedRecipe.title} ${parsedRecipe.subtitle || ""} ${ingredients.map((i: any) => i.name).join(" ")} ${steps.slice(0, 2).map((s: any) => s.description).join(" ")}`;
+      const isEnglish = /\b(the|and|with|for|in|cup|cups|tbsp|tsp|tablespoon|teaspoon|tablespoons|teaspoons|pound|pounds|cloves|chopped|minced|sliced|diced|cooked|heat|pan|skillet|medium|high|stir|mix|add|whisk|boil|simmer|bake|oven|degrees|minutes|salt|pepper|olive oil|garlic|onion|chicken|beef|flour|sugar|butter)\b/i.test(sampleText);
+
+      const geminiApiKey =
+        process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+
+      if (isEnglish && geminiApiKey) {
+        log("Recette JSON-LD détectée en anglais : traduction automatique en français avec Gemini...");
+        const translatePrompt = `Tu es un chef cuisinier traducteur expert. Traduis cette recette culinaire en FRANÇAIS soigné et appétissant :
+Titre actuel : "${parsedRecipe.title}"
+Sous-titre actuel : "${parsedRecipe.subtitle || ""}"
+Ingrédients actuels : ${JSON.stringify(parsedRecipe.ingredients)}
+Étapes actuelles : ${JSON.stringify(parsedRecipe.steps.map((s: any) => ({ stepNumber: s.stepNumber, title: s.title, description: s.description })))}
+
+INSTRUCTIONS DE TRADUCTION :
+1. Traduis le titre et le sous-titre en français appétissant.
+2. Traduis TOUS les noms d'ingrédients en français et convertis les unités impériales (cups, oz, lbs, tbsp, tsp) en unités métriques françaises claires (g, ml, c. à soupe, c. à café, gousses...).
+3. Traduis fidèlement les étapes en français fluide.
+4. Réponds STRICTEMENT avec ce JSON valide en français :
+{
+  "title": "Titre traduit en français",
+  "subtitle": "Sous-titre traduit en français",
+  "ingredients": [
+    { "id": "ing_1", "name": "Nom ingrédient en français", "amount": 200, "unit": "g" }
+  ],
+  "steps": [
+    { "stepNumber": 1, "title": "Étape 1", "description": "Instructions détaillées en français..." }
+  ]
+}`;
+
+        const translateModels = [
+          "gemini-flash-lite-latest",
+          "gemini-3.5-flash-lite",
+          "gemini-3.1-flash-lite",
+          "gemini-flash-latest",
+        ];
+
+        for (const model of translateModels) {
+          try {
+            const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+            const geminiRes = await fetch(geminiEndpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: translatePrompt }] }],
+                generationConfig: {
+                  response_mime_type: "application/json",
+                  temperature: 0.1,
+                },
+              }),
+              signal: AbortSignal.timeout(12000),
+            });
+
+            if (geminiRes.ok) {
+              const geminiData = await geminiRes.json();
+              const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (rawText) {
+                const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+                const trans = JSON.parse(cleanedText);
+                if (trans.title) parsedRecipe.title = trans.title;
+                if (trans.subtitle) parsedRecipe.subtitle = trans.subtitle;
+                if (Array.isArray(trans.ingredients) && trans.ingredients.length > 0) {
+                  parsedRecipe.ingredients = trans.ingredients.map((ing: any, i: number) => ({
+                    id: ing.id || `ing_${i + 1}`,
+                    name: ing.name,
+                    amount: ing.amount ?? ingredients[i]?.amount ?? 1,
+                    unit: ing.unit || ingredients[i]?.unit || "pièce(s)",
+                  }));
+                }
+                if (Array.isArray(trans.steps) && trans.steps.length > 0) {
+                  parsedRecipe.steps = trans.steps.map((st: any, i: number) => ({
+                    ...steps[i],
+                    stepNumber: st.stepNumber || i + 1,
+                    title: st.title || steps[i]?.title || `Étape ${i + 1}`,
+                    description: st.description || steps[i]?.description || "",
+                  }));
+                }
+                log(`Traduction réussie (${model}) : "${parsedRecipe.title}"`);
+                break;
+              }
+            }
+          } catch (tErr) {
+            log(`Échec de traduction avec ${model}: ${tErr}`);
+          }
+        }
+      }
+
+      log(`Recette analysée avec succès: "${parsedRecipe.title}" (${parsedRecipe.ingredients.length} ingrédients, ${parsedRecipe.steps.length} étapes).`);
 
       return NextResponse.json({
         recipe: parsedRecipe,
@@ -528,21 +617,24 @@ Titre page : ${ogTitle}
 Contenu :
 ${simplifiedText}
 
-Réponds STRICTEMENT avec ce JSON valide :
+INSTRUCTION DE TRADUCTION OBLIGATOIRE :
+Si le texte, les ingrédients ou les étapes sont en anglais ou dans une autre langue, traduis l'intégralité de la recette en français soigné (titre, sous-titre, ingrédients, unités, étapes).
+
+Réponds STRICTEMENT avec ce JSON valide en français :
 {
-  "title": "Nom de la recette",
-  "subtitle": "Courte description",
+  "title": "Nom de la recette en français",
+  "subtitle": "Courte description en français",
   "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads",
   "imageUrl": "${ogImage}",
   "prepTimeMinutes": 30,
   "difficulty": "Easy" | "Medium" | "Hard",
   "rating": 4.8,
-  "servingsBase": 4,
+  "servingsBase": 6,
   "ingredients": [
-    { "id": "ing_1", "name": "Nom ingrédient", "amount": 200, "unit": "g" }
+    { "id": "ing_1", "name": "Nom ingrédient en français", "amount": 200, "unit": "g" }
   ],
   "steps": [
-    { "stepNumber": 1, "title": "Étape 1", "description": "Instructions...", "durationMinutes": 5 }
+    { "stepNumber": 1, "title": "Étape 1", "description": "Instructions détaillées en français...", "durationMinutes": 5 }
   ]
 }`;
 

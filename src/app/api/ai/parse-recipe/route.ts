@@ -70,10 +70,11 @@ export async function POST(req: NextRequest) {
 
 INSTRUCTIONS CRITIQUES :
 1. OCR STRICT & FIDÈLE : Lis et extrais TOUT le texte réel visible sur les photos. N'invente JAMAIS de fausses données ni de données par défaut. Si le plat est "Riz sauté aux légumes" ou "Poulet au curry", extrais exactement ce titre, ses ingrédients réels et ses étapes réelles.
-2. DÉTECTION D'ORIENTATION (TRÈS IMPORTANT) :
+2. TRADUCTION OBLIGATOIRE EN FRANÇAIS : Si la fiche recette, le livre ou le texte est en anglais (ou toute autre langue étrangère), TRADUIS TOUT INTÉGRALEMENT EN FRANÇAIS (titre du plat en français, sous-titre en français, noms des ingrédients traduits en français avec unités métriques usuelles, étapes et astuces rédigées en français). Tout le contenu textuel renvoyé doit être 100% en français.
+3. DÉTECTION D'ORIENTATION (TRÈS IMPORTANT) :
    - Analyse l'orientation de chaque photo (photo 0, photo 1, etc.).
    - Indique la rotation en degrés (0, 90, 180, ou 270) nécessaire pour que le texte soit parfaitement horizontal, droit et lisible de gauche à droite.
-3. DÉTECTION & RECADRAGE DES IMAGES :
+4. DÉTECTION & RECADRAGE DES IMAGES :
    - Sur la photo du plat fini (recto) : Détecte les coordonnées [ymin, xmin, ymax, xmax] (échelle 0 à 1000) de l'assiette/bol ("mainDishCropBox") une fois la photo remise droite.
    - Sur la photo des étapes (verso) : Pour CHAQUE étape numérotée (Étape 1, 2, 3, 4, 5, 6...), identifie avec grande précision le rectangle [ymin, xmin, ymax, xmax] (échelle 0 à 1000) de la photo/illustration de l'étape correspondante ("stepCropBox") une fois la photo remise droite.
 

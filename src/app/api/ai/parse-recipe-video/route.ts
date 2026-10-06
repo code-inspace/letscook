@@ -60,11 +60,12 @@ TÂCHE D'ANALYSE :
 2. Lis tous les textes ou sous-titres incrustés à l'écran.
 3. Observe les gestes et les ingrédients manipulés dans la vidéo.
 4. Synthétise le tout pour générer une recette complète, précise et calibrée par défaut pour 6 personnes.
+5. TRADUCTION OBLIGATOIRE EN FRANÇAIS : Si l'audio, les sous-titres, le texte ou les ingrédients de la vidéo sont en anglais (ou toute autre langue), TRADUIS L'INTÉGRALITÉ EN FRANÇAIS SOIGNÉ (titre du plat en français, sous-titre en français, noms des ingrédients traduits en français avec unités métriques usuelles [g, ml, c. à soupe, c. à café, gousses...], étapes rédigées en français). Le résultat doit être 100% en français.
 
-Réponds STRICTEMENT avec ce JSON valide :
+Réponds STRICTEMENT avec ce JSON valide en français :
 {
-  "title": "Nom précis et appétissant du plat",
-  "subtitle": "Courte description ou style culinaire",
+  "title": "Nom précis et appétissant du plat en français",
+  "subtitle": "Courte description ou style culinaire en français",
   "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads",
   "prepTimeMinutes": 30,
   "difficulty": "Easy" | "Medium" | "Hard",
@@ -73,10 +74,10 @@ Réponds STRICTEMENT avec ce JSON valide :
   "spiceLevel": "Doux" | "Moyen" | "Épicé",
   "utensils": ["Poêle", "Spatule"],
   "ingredients": [
-    { "id": "ing_1", "name": "Nom de l'ingrédient", "amount": 200, "unit": "g" }
+    { "id": "ing_1", "name": "Nom de l'ingrédient en français", "amount": 200, "unit": "g" }
   ],
   "steps": [
-    { "stepNumber": 1, "title": "Titre étape 1", "description": "Instructions détaillées de préparation...", "durationMinutes": 5 }
+    { "stepNumber": 1, "title": "Titre étape 1 en français", "description": "Instructions détaillées de préparation en français...", "durationMinutes": 5 }
   ]
 }`;
 
