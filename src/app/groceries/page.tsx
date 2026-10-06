@@ -354,23 +354,18 @@ export default function GroceriesPage() {
     <div className="min-h-screen bg-[#F8F9FB] flex flex-col pb-32">
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md px-5 pt-7 pb-3.5 flex items-center justify-between border-b border-slate-100">
-        <button
-          type="button"
-          onClick={() => router.push("/")}
-          className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
-          aria-label="Retour"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-
-        <div className="text-center">
-          <h1 className="text-base font-extrabold text-[#181A20] flex items-center justify-center gap-1.5">
-            <ShoppingBag className="w-4 h-4 text-[#5DB534]" />
-            <span>Liste de courses</span>
-          </h1>
-          <span className="text-[10px] text-[#8E929E] font-medium">
-            Mutualisée & synchronisée
-          </span>
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-[#5DB534] flex items-center justify-center border border-emerald-100 shadow-2xs">
+            <ShoppingBag className="w-4 h-4" />
+          </div>
+          <div className="flex flex-col">
+            <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
+              Liste de courses
+            </h1>
+            <span className="text-[10px] text-[#8E929E] font-medium">
+              Mutualisée & synchronisée
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5">

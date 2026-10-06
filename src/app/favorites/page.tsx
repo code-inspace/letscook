@@ -62,26 +62,21 @@ export default function FavoritesPage() {
     <div className="min-h-screen flex flex-col bg-slate-50/50 pb-36">
       {/* Harmonized Sticky Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md px-5 pt-7 pb-3.5 flex items-center justify-between border-b border-slate-100">
-        <button
-          type="button"
-          onClick={() => router.push("/")}
-          className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
-          aria-label="Retour à l'accueil"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-
-        <div className="text-center">
-          <h1 className="text-base font-extrabold text-[#181A20] flex items-center justify-center gap-1.5">
-            <Heart className="w-4 h-4 text-[#F2546E] fill-[#F2546E]" strokeWidth={1} />
-            <span>Mes Favoris</span>
-          </h1>
-          <span className="text-[10px] text-[#8E929E] font-medium">
-            {favoriteRecipes.length} recette{favoriteRecipes.length > 1 ? "s" : ""} coup de cœur
-          </span>
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center border border-rose-100/60 shadow-2xs">
+            <Heart className="w-4 h-4 fill-[#F2546E] text-[#F2546E]" strokeWidth={1} />
+          </div>
+          <div className="flex flex-col">
+            <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
+              Mes Favoris
+            </h1>
+            <span className="text-[10px] text-[#8E929E] font-medium">
+              {favoriteRecipes.length} recette{favoriteRecipes.length > 1 ? "s" : ""} coup de cœur
+            </span>
+          </div>
         </div>
 
-        <div className="w-10 h-10 flex items-center justify-center text-rose-500 bg-rose-50 rounded-full font-extrabold text-xs">
+        <div className="px-3 py-1.5 bg-rose-50 border border-rose-100/80 rounded-full text-rose-600 font-extrabold text-xs">
           {favoriteRecipes.length}
         </div>
       </header>

@@ -46,26 +46,23 @@ function SearchContent() {
     <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] bg-[#F8F9FB] pb-32 relative">
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md px-5 pt-7 pb-3.5 flex items-center justify-between border-b border-slate-100">
-        <button
-          type="button"
-          onClick={() => router.push("/")}
-          className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
-          aria-label="Retour"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-
-        <div className="text-center">
-          <h1 className="text-base font-extrabold text-[#181A20] flex items-center justify-center gap-1.5">
-            <Search className="w-4 h-4 text-[#5DB534]" />
-            <span>Recherche</span>
-          </h1>
-          <span className="text-[10px] text-[#8E929E] font-medium">
-            Par nom ou ingrédient
-          </span>
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-[#5DB534] flex items-center justify-center border border-emerald-100 shadow-2xs">
+            <Search className="w-4 h-4" />
+          </div>
+          <div className="flex flex-col">
+            <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
+              Recherche
+            </h1>
+            <span className="text-[10px] text-[#8E929E] font-medium">
+              Par nom ou ingrédient
+            </span>
+          </div>
         </div>
 
-        <div className="w-10" />
+        <div className="px-3 py-1 bg-slate-100/80 rounded-full text-slate-600 font-extrabold text-xs">
+          {recipes.length} recettes
+        </div>
       </header>
 
       <div className="px-5 pt-4 max-w-xl w-full mx-auto space-y-4">
