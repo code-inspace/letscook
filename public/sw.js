@@ -1,5 +1,5 @@
 // Service Worker for Let's Cook PWA
-const CACHE_NAME = "letscook-cache-v1";
+const CACHE_NAME = "letscook-cache-v2";
 const STATIC_ASSETS = [
   "/",
   "/groceries",
@@ -8,6 +8,11 @@ const STATIC_ASSETS = [
   "/search",
   "/profile",
   "/manifest.json",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/apple-touch-icon.png",
+  "/favicon.svg",
+  "/icon.svg",
 ];
 
 // Install Event: pre-cache critical app shell routes
