@@ -108,81 +108,73 @@ export async function decryptRecipe(recipe: Recipe): Promise<Recipe> {
 export function getStoredRecipes(userId?: string): Recipe[] {
   if (typeof window === "undefined") return [];
 
-  // 1. Check in-memory cache
-  if (memoryRecipesCache && memoryRecipesCache.length > 0) {
-    // If any item in memory is encrypted, trigger immediate background decryption
-    if (memoryRecipesCache.some((r) => isEncrypted(r.title))) {
-      Promise.all(memoryRecipesCache.map((r) => decryptRecipe(r))).then((cleanList) => {
-        saveStoredRecipes(cleanList, userId);
-      });
+  const recipeMap = new Map<string, Recipe>();
+
+  const ingest = (list: any[]) => {
+    if (!Array.isArray(list)) return;
+    for (const item of list) {
+      if (item && typeof item === "object" && item.id) {
+        if (!recipeMap.has(item.id)) {
+          recipeMap.set(item.id, item);
+        }
+      }
     }
-    return memoryRecipesCache;
+  };
+
+  // 1. Check in-memory cache
+  if (memoryRecipesCache && Array.isArray(memoryRecipesCache) && memoryRecipesCache.length > 0) {
+    ingest(memoryRecipesCache);
   }
 
   // 2. Check user-specific localStorage key
   if (userId) {
     try {
       const raw = localStorage.getItem(`${RECIPES_STORAGE_KEY_PREFIX}${userId}`);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          memoryRecipesCache = parsed;
-          if (parsed.some((r) => isEncrypted(r.title))) {
-            Promise.all(parsed.map((r) => decryptRecipe(r))).then((cleanList) => {
-              saveStoredRecipes(cleanList, userId);
-            });
-          }
-          return parsed;
-        }
-      }
+      if (raw) ingest(JSON.parse(raw));
     } catch {}
   }
 
   // 3. Check global cache key
   try {
     const globalRaw = localStorage.getItem(GLOBAL_CACHE_KEY);
-    if (globalRaw) {
-      const parsed = JSON.parse(globalRaw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        memoryRecipesCache = parsed;
-        if (parsed.some((r) => isEncrypted(r.title))) {
-          Promise.all(parsed.map((r) => decryptRecipe(r))).then((cleanList) => {
-            saveStoredRecipes(cleanList, userId);
-          });
-        }
-        return parsed;
-      }
-    }
+    if (globalRaw) ingest(JSON.parse(globalRaw));
+  } catch {}
 
-    // 4. Scan any letscook_recipes_* keys in localStorage to recover all saved recipes
-    const keys = Object.keys(localStorage).filter((k) =>
-      k.startsWith(RECIPES_STORAGE_KEY_PREFIX)
-    );
-    let bestList: Recipe[] = [];
-    for (const k of keys) {
-      try {
-        const raw = localStorage.getItem(k);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > bestList.length) {
-            bestList = parsed;
+  // 4. Scan any letscook_recipes_* and letscook_recipe_* keys in localStorage
+  try {
+    const keys = Object.keys(localStorage);
+    for (const key of keys) {
+      if (key.startsWith(RECIPES_STORAGE_KEY_PREFIX)) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) ingest(JSON.parse(raw));
+        } catch {}
+      } else if (key.startsWith(INDIVIDUAL_RECIPE_PREFIX)) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.id && !recipeMap.has(parsed.id)) {
+              recipeMap.set(parsed.id, parsed);
+            }
           }
-        }
-      } catch {}
-    }
-
-    if (bestList.length > 0) {
-      memoryRecipesCache = bestList;
-      if (bestList.some((r) => isEncrypted(r.title))) {
-        Promise.all(bestList.map((r) => decryptRecipe(r))).then((cleanList) => {
-          saveStoredRecipes(cleanList, userId);
-        });
+        } catch {}
       }
-      return bestList;
     }
   } catch {}
 
-  return [];
+  const merged = Array.from(recipeMap.values());
+  if (merged.length > 0) {
+    memoryRecipesCache = merged;
+    // If any item is encrypted, trigger background decryption
+    if (merged.some((r) => isEncrypted(r.title))) {
+      Promise.all(merged.map((r) => decryptRecipe(r))).then((cleanList) => {
+        saveStoredRecipes(cleanList, userId);
+      });
+    }
+  }
+
+  return merged;
 }
 
 export function saveStoredRecipes(recipes: Recipe[], userId?: string): void {
@@ -214,6 +206,8 @@ export async function fetchRecipesFromDb(userId: string): Promise<Recipe[]> {
   if (!userId) return getStoredRecipes();
   const supabase = createClient();
 
+  const allLocal = getStoredRecipes(userId);
+
   try {
     const { data, error } = await supabase
       .from("recipes")
@@ -224,72 +218,94 @@ export async function fetchRecipesFromDb(userId: string): Promise<Recipe[]> {
     if (!error && data && Array.isArray(data)) {
       // Parallel fast decryption using in-memory string cache
       const decryptedRecipes: Recipe[] = await Promise.all(
-        data.map(async (row: any) => {
-          let title = row.title;
-          let ingredients = row.ingredients;
-          let steps = row.steps;
-
-          if (title && isEncrypted(title)) {
-            title = await fastDecrypt(title);
-          }
-
-          if (typeof ingredients === "string" && isEncrypted(ingredients)) {
-            const dec = await fastDecrypt(ingredients);
-            try {
-              ingredients = JSON.parse(dec);
-            } catch {}
-          }
-
-          if (typeof steps === "string" && isEncrypted(steps)) {
-            const dec = await fastDecrypt(steps);
-            try {
-              steps = JSON.parse(dec);
-            } catch {}
-          }
-
-          return {
+        data.map((row: any) =>
+          decryptRecipe({
             id: row.id,
             userId: row.user_id,
-            title: title || "Recette sans titre",
+            title: row.title || "Recette sans titre",
             subtitle: row.subtitle,
             category: row.category || "Main Dishes",
             imageUrl: row.image_url || "",
             prepTimeMinutes: row.prep_time_minutes || 30,
             difficulty: row.difficulty || "Easy",
             rating: row.rating || 5.0,
-            servingsBase: row.servings_base || 4,
+            servingsBase: row.servings_base || 6,
             spiceLevel: row.spice_level,
             utensils: row.utensils || [],
             nutrition: row.nutrition,
             allergens: row.allergens || [],
-            ingredients: Array.isArray(ingredients) ? ingredients : [],
-            steps: Array.isArray(steps) ? steps : [],
+            ingredients: row.ingredients,
+            steps: row.steps,
             isFavorite: Boolean(row.is_favorite),
             createdAt: row.created_at || new Date().toISOString(),
             updatedAt: row.updated_at || new Date().toISOString(),
-          };
-        })
+          })
+        )
       );
 
-      // Merge with local list if any locally created recipe was pending sync
-      const local = getStoredRecipes(userId);
+      // Merge remote DB recipes + all local recipes
       const mergedMap = new Map<string, Recipe>();
       decryptedRecipes.forEach((r) => mergedMap.set(r.id, r));
-      local.forEach((r) => {
+
+      const pendingSyncToDb: Recipe[] = [];
+      allLocal.forEach((r) => {
         if (!mergedMap.has(r.id)) {
-          mergedMap.set(r.id, r);
+          const withUser = { ...r, userId };
+          mergedMap.set(r.id, withUser);
+          pendingSyncToDb.push(withUser);
         }
       });
 
       const finalList = Array.from(mergedMap.values());
       saveStoredRecipes(finalList, userId);
+
+      // Automatically sync missing local recipes to Supabase in background
+      if (pendingSyncToDb.length > 0) {
+        Promise.all(
+          pendingSyncToDb.map(async (recipe) => {
+            const clean = await decryptRecipe(recipe);
+            const [encryptedTitle, encryptedIngredients, encryptedSteps] = await Promise.all([
+              encryptText(clean.title),
+              encryptText(JSON.stringify(clean.ingredients || [])),
+              encryptText(JSON.stringify(clean.steps || [])),
+            ]);
+            return {
+              id: clean.id,
+              user_id: userId,
+              title: encryptedTitle,
+              subtitle: clean.subtitle,
+              category: clean.category,
+              image_url: clean.imageUrl,
+              prep_time_minutes: clean.prepTimeMinutes,
+              difficulty: clean.difficulty,
+              rating: clean.rating,
+              servings_base: clean.servingsBase || 6,
+              spice_level: clean.spiceLevel,
+              utensils: clean.utensils,
+              nutrition: clean.nutrition,
+              allergens: clean.allergens,
+              ingredients: encryptedIngredients,
+              steps: encryptedSteps,
+              is_favorite: Boolean(clean.isFavorite),
+              updated_at: new Date().toISOString(),
+            };
+          })
+        )
+          .then(async (payloads) => {
+            await supabase.from("recipes").upsert(payloads, { onConflict: "id" });
+          })
+          .catch((err) => {
+            console.warn("Auto-syncing local recipes to DB warning:", err);
+          });
+      }
+
       return finalList;
     }
   } catch (err) {
     console.warn("fetchRecipesFromDb error, falling back to local cache:", err);
   }
 
-  return getStoredRecipes(userId);
+  return allLocal;
 }
 
 export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Recipe> {
