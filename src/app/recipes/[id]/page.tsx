@@ -27,9 +27,11 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
+import { getStoredUserSession } from "@/features/auth/actions";
 import { Recipe, IngredientItem, RecipeStep } from "@/features/recipes/types";
 import {
   getStoredRecipes,
+  getStoredRecipeById,
   fetchRecipesFromDb,
   saveRecipeToDb,
   deleteRecipeFromDb,
@@ -58,11 +60,34 @@ export default function RecipeDetailPage() {
   const { user } = useAuth();
   const recipeId = params?.id as string;
 
-  const [recipe, setRecipe] = useState<Recipe | null>(null);
-  const [servings, setServings] = useState<number>(2);
-  const [isFavorite, setIsFavorite] = useState<boolean>(false);
+  const [recipe, setRecipe] = useState<Recipe | null>(() => {
+    if (typeof window !== "undefined" && recipeId) {
+      const session = getStoredUserSession();
+      return getStoredRecipeById(recipeId, session?.id);
+    }
+    return null;
+  });
+
+  const [servings, setServings] = useState<number>(6);
+
+  const [isFavorite, setIsFavorite] = useState<boolean>(() => {
+    if (typeof window !== "undefined" && recipeId) {
+      const session = getStoredUserSession();
+      const r = getStoredRecipeById(recipeId, session?.id);
+      return Boolean(r?.isFavorite);
+    }
+    return false;
+  });
+
   const [activeTab, setActiveTab] = useState<"ingredients" | "steps" | "nutrition">("ingredients");
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    if (typeof window !== "undefined" && recipeId) {
+      const session = getStoredUserSession();
+      const r = getStoredRecipeById(recipeId, session?.id);
+      return !r;
+    }
+    return true;
+  });
 
   // Planning Modal State
   const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
@@ -70,7 +95,7 @@ export default function RecipeDetailPage() {
     new Date().toISOString().split("T")[0]
   );
   const [planMealType, setPlanMealType] = useState<"lunch" | "dinner" | "breakfast" | "snack">("dinner");
-  const [planServings, setPlanServings] = useState<number>(2);
+  const [planServings, setPlanServings] = useState<number>(6);
   const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
   const [planSuccessToast, setPlanSuccessToast] = useState<string | null>(null);
 
@@ -81,7 +106,7 @@ export default function RecipeDetailPage() {
   const [editCategory, setEditCategory] = useState<string>("Main Dishes");
   const [editPrepTime, setEditPrepTime] = useState<number>(30);
   const [editDifficulty, setEditDifficulty] = useState<"Easy" | "Medium" | "Hard">("Easy");
-  const [editServingsBase, setEditServingsBase] = useState<number>(2);
+  const [editServingsBase, setEditServingsBase] = useState<number>(6);
   const [editImageUrl, setEditImageUrl] = useState<string>("");
   const [editIngredients, setEditIngredients] = useState<IngredientItem[]>([]);
   const [editSteps, setEditSteps] = useState<RecipeStep[]>([]);
@@ -100,29 +125,36 @@ export default function RecipeDetailPage() {
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!user?.id || !recipeId) return;
+    if (!recipeId) return;
+    const currentUserId = user?.id || getStoredUserSession()?.id;
 
-    const all = getStoredRecipes(user.id);
-    const found = all.find((r) => r.id === recipeId);
+    const found = getStoredRecipeById(recipeId, currentUserId);
     if (found) {
       setRecipe(found);
-      setServings(found.servingsBase || 2);
-      setPlanServings(found.servingsBase || 2);
+      setServings(6);
+      setPlanServings(6);
       setIsFavorite(Boolean(found.isFavorite));
       setIsLoading(false);
     }
 
-    // Fetch from Supabase database directly
-    fetchRecipesFromDb(user.id).then((dbList) => {
-      const dbFound = dbList.find((r) => r.id === recipeId);
-      if (dbFound) {
-        setRecipe(dbFound);
-        setServings(dbFound.servingsBase || 2);
-        setPlanServings(dbFound.servingsBase || 2);
-        setIsFavorite(Boolean(dbFound.isFavorite));
-      }
+    if (currentUserId) {
+      fetchRecipesFromDb(currentUserId)
+        .then((dbList) => {
+          const dbFound = dbList.find((r) => r.id === recipeId);
+          if (dbFound) {
+            setRecipe(dbFound);
+            setServings(6);
+            setPlanServings(6);
+            setIsFavorite(Boolean(dbFound.isFavorite));
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          setIsLoading(false);
+        });
+    } else {
       setIsLoading(false);
-    });
+    }
   }, [user?.id, recipeId]);
 
   if (isLoading && !recipe) {

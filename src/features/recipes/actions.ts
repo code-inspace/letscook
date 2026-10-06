@@ -22,11 +22,100 @@ async function fastDecrypt(cipher: string): Promise<string> {
   }
 }
 
+const INDIVIDUAL_RECIPE_PREFIX = "letscook_recipe_";
+
+export function getStoredRecipeById(recipeId: string, userId?: string): Recipe | null {
+  if (!recipeId || typeof window === "undefined") return null;
+
+  // 1. Check in-memory cache
+  if (memoryRecipesCache && memoryRecipesCache.length > 0) {
+    const found = memoryRecipesCache.find((r) => r.id === recipeId);
+    if (found) return found;
+  }
+
+  // 2. Check dedicated individual recipe localStorage key
+  try {
+    const indRaw = localStorage.getItem(`${INDIVIDUAL_RECIPE_PREFIX}${recipeId}`);
+    if (indRaw) {
+      const parsed = JSON.parse(indRaw);
+      if (parsed && parsed.id === recipeId) return parsed;
+    }
+  } catch {}
+
+  // 3. Check all stored recipes list
+  const list = getStoredRecipes(userId);
+  const found = list.find((r) => r.id === recipeId);
+  if (found) return found;
+
+  return null;
+}
+
+export function cacheRecipeOffline(recipe: Recipe): void {
+  if (!recipe || !recipe.id || typeof window === "undefined") return;
+  try {
+    localStorage.setItem(`${INDIVIDUAL_RECIPE_PREFIX}${recipe.id}`, JSON.stringify(recipe));
+  } catch (err) {
+    console.warn("cacheRecipeOffline error:", err);
+  }
+}
+
+export async function decryptRecipe(recipe: Recipe): Promise<Recipe> {
+  if (!recipe) return recipe;
+
+  let title = recipe.title;
+  let ingredients = recipe.ingredients;
+  let steps = recipe.steps;
+
+  if (title && isEncrypted(title)) {
+    title = await fastDecrypt(title);
+  }
+
+  if (typeof ingredients === "string" && isEncrypted(ingredients)) {
+    const dec = await fastDecrypt(ingredients);
+    try {
+      ingredients = JSON.parse(dec);
+    } catch {
+      ingredients = [];
+    }
+  } else if (Array.isArray(ingredients)) {
+    ingredients = await Promise.all(
+      ingredients.map(async (ing) => {
+        if (ing && ing.name && isEncrypted(ing.name)) {
+          return { ...ing, name: await fastDecrypt(ing.name) };
+        }
+        return ing;
+      })
+    );
+  }
+
+  if (typeof steps === "string" && isEncrypted(steps)) {
+    const dec = await fastDecrypt(steps);
+    try {
+      steps = JSON.parse(dec);
+    } catch {
+      steps = [];
+    }
+  }
+
+  return {
+    ...recipe,
+    title: title || "Recette sans titre",
+    ingredients: Array.isArray(ingredients) ? ingredients : [],
+    steps: Array.isArray(steps) ? steps : [],
+  };
+}
+
 export function getStoredRecipes(userId?: string): Recipe[] {
   if (typeof window === "undefined") return [];
 
   // 1. Check in-memory cache
   if (memoryRecipesCache && memoryRecipesCache.length > 0) {
+    // If any item in memory is encrypted, trigger immediate background decryption
+    if (memoryRecipesCache.some((r) => isEncrypted(r.title))) {
+      Promise.all(memoryRecipesCache.map((r) => decryptRecipe(r))).then((cleanList) => {
+        saveStoredRecipes(cleanList, userId);
+      });
+    }
     return memoryRecipesCache;
   }
 
@@ -38,6 +127,11 @@ export function getStoredRecipes(userId?: string): Recipe[] {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
           memoryRecipesCache = parsed;
+          if (parsed.some((r) => isEncrypted(r.title))) {
+            Promise.all(parsed.map((r) => decryptRecipe(r))).then((cleanList) => {
+              saveStoredRecipes(cleanList, userId);
+            });
+          }
           return parsed;
         }
       }
@@ -51,6 +145,11 @@ export function getStoredRecipes(userId?: string): Recipe[] {
       const parsed = JSON.parse(globalRaw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         memoryRecipesCache = parsed;
+        if (parsed.some((r) => isEncrypted(r.title))) {
+          Promise.all(parsed.map((r) => decryptRecipe(r))).then((cleanList) => {
+            saveStoredRecipes(cleanList, userId);
+          });
+        }
         return parsed;
       }
     }
@@ -74,6 +173,11 @@ export function getStoredRecipes(userId?: string): Recipe[] {
 
     if (bestList.length > 0) {
       memoryRecipesCache = bestList;
+      if (bestList.some((r) => isEncrypted(r.title))) {
+        Promise.all(bestList.map((r) => decryptRecipe(r))).then((cleanList) => {
+          saveStoredRecipes(cleanList, userId);
+        });
+      }
       return bestList;
     }
   } catch {}
@@ -92,6 +196,13 @@ export function saveStoredRecipes(recipes: Recipe[], userId?: string): void {
     }
     // Always persist to global cache so all recipes are immediately available on load
     localStorage.setItem(GLOBAL_CACHE_KEY, json);
+
+    // Cache each recipe individually for fast standalone offline lookups
+    recipes.forEach((r) => {
+      try {
+        localStorage.setItem(`${INDIVIDUAL_RECIPE_PREFIX}${r.id}`, JSON.stringify(r));
+      } catch {}
+    });
 
     window.dispatchEvent(new CustomEvent("letscook:recipes-updated"));
   } catch (err) {

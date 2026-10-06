@@ -137,8 +137,12 @@ export default function CalendarPage() {
     setMealPlans(getStoredMealPlans(currentUserId));
     setRecipes(getStoredRecipes(currentUserId));
 
-    fetchMealPlansFromDb(currentUserId).then((plans) => setMealPlans(plans));
-    fetchRecipesFromDb(currentUserId).then((recs) => setRecipes(recs));
+    fetchMealPlansFromDb(currentUserId)
+      .then((plans) => setMealPlans(plans))
+      .catch(() => {});
+    fetchRecipesFromDb(currentUserId)
+      .then((recs) => setRecipes(recs))
+      .catch(() => {});
 
     const handleUpdate = () => {
       setMealPlans(getStoredMealPlans(currentUserId));
@@ -267,7 +271,7 @@ export default function CalendarPage() {
         recipeImageUrl: chosenRecipe.imageUrl,
         date: selectedDate,
         mealType: selectedMealType,
-        servings: chosenRecipe.servingsBase || 2,
+        servings: 6,
       },
       currentUserId
     );

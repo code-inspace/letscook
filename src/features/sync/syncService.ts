@@ -3,7 +3,7 @@ import { getStoredRecipes, saveStoredRecipes, fetchRecipesFromDb } from "@/featu
 import { getStoredMealPlans, saveStoredMealPlans, fetchMealPlansFromDb } from "@/features/calendar/actions";
 import { getStoredShoppingItems, saveStoredShoppingItems, fetchCustomShoppingItemsFromDb } from "@/features/groceries/actions";
 import { categorizeIngredient } from "@/features/groceries/categorizer";
-import { encryptText } from "@/lib/crypto/encryption";
+import { encryptText, decryptText, isEncrypted } from "@/lib/crypto/encryption";
 
 export interface SyncResult {
   success: boolean;
@@ -80,10 +80,28 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
     if (localRecipes.length > 0) {
       const recipePayloads = await Promise.all(
         localRecipes.map(async (recipe) => {
+          const plainTitle = isEncrypted(recipe.title) ? await decryptText(recipe.title) : recipe.title;
+          let plainIngredients = recipe.ingredients || [];
+          if (typeof plainIngredients === "string" && isEncrypted(plainIngredients)) {
+            try {
+              plainIngredients = JSON.parse(await decryptText(plainIngredients));
+            } catch {
+              plainIngredients = [];
+            }
+          }
+          let plainSteps = recipe.steps || [];
+          if (typeof plainSteps === "string" && isEncrypted(plainSteps)) {
+            try {
+              plainSteps = JSON.parse(await decryptText(plainSteps));
+            } catch {
+              plainSteps = [];
+            }
+          }
+
           const [encryptedTitle, encryptedIngredients, encryptedSteps] = await Promise.all([
-            encryptText(recipe.title),
-            encryptText(JSON.stringify(recipe.ingredients || [])),
-            encryptText(JSON.stringify(recipe.steps || [])),
+            encryptText(plainTitle),
+            encryptText(JSON.stringify(plainIngredients)),
+            encryptText(JSON.stringify(plainSteps)),
           ]);
 
           return {

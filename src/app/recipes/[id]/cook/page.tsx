@@ -13,8 +13,9 @@ import {
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useAuth } from "@/providers/AuthProvider";
+import { getStoredUserSession } from "@/features/auth/actions";
 import { Recipe, RecipeStep } from "@/features/recipes/types";
-import { getStoredRecipes, fetchRecipesFromDb } from "@/features/recipes/actions";
+import { getStoredRecipes, getStoredRecipeById, fetchRecipesFromDb } from "@/features/recipes/actions";
 
 export default function CookingStepPage() {
   const params = useParams();
@@ -22,7 +23,13 @@ export default function CookingStepPage() {
   const { user } = useAuth();
   const recipeId = params?.id as string;
 
-  const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [recipe, setRecipe] = useState<Recipe | null>(() => {
+    if (typeof window !== "undefined" && recipeId) {
+      const session = getStoredUserSession();
+      return getStoredRecipeById(recipeId, session?.id);
+    }
+    return null;
+  });
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
@@ -55,18 +62,22 @@ export default function CookingStepPage() {
   }, []);
 
   useEffect(() => {
-    if (!user?.id || !recipeId) return;
+    if (!recipeId) return;
+    const currentUserId = user?.id || getStoredUserSession()?.id;
 
-    const all = getStoredRecipes(user.id);
-    const found = all.find((r) => r.id === recipeId);
+    const found = getStoredRecipeById(recipeId, currentUserId);
     if (found) {
       setRecipe(found);
     }
 
-    fetchRecipesFromDb(user.id).then((list) => {
-      const dbFound = list.find((r) => r.id === recipeId);
-      if (dbFound) setRecipe(dbFound);
-    });
+    if (currentUserId) {
+      fetchRecipesFromDb(currentUserId)
+        .then((list) => {
+          const dbFound = list.find((r) => r.id === recipeId);
+          if (dbFound) setRecipe(dbFound);
+        })
+        .catch(() => {});
+    }
   }, [user?.id, recipeId]);
 
   const currentStep: RecipeStep | undefined = recipe?.steps?.[currentStepIndex];

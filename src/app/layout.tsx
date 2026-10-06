@@ -3,6 +3,7 @@ import { Poppins } from "next/font/google";
 import "./globals.css";
 import { PhoneFrame } from "@/components/layout/PhoneFrame";
 import { AuthProvider } from "@/providers/AuthProvider";
+import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -14,6 +15,12 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "Let's Cook - Recipe App",
   description: "Cook Special Every Day with pure minimalism & step-by-step recipes",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Let's Cook",
+  },
 };
 
 export const viewport: Viewport = {
@@ -34,6 +41,7 @@ export default function RootLayout({
     <html lang="fr" className={poppins.variable}>
       <body className="antialiased bg-[#E8ECEB] text-[#1C1C1C]">
         <AuthProvider>
+          <ServiceWorkerRegister />
           <PhoneFrame>{children}</PhoneFrame>
         </AuthProvider>
       </body>

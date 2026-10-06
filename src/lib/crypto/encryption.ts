@@ -9,14 +9,15 @@ const DEFAULT_KEY_SALT = "letscook_secure_salt_v1";
 
 const derivedKeyCache = new Map<string, CryptoKey>();
 
-async function deriveKey(customSecret?: string): Promise<CryptoKey> {
+async function deriveKey(customSecret?: string, iterations = 100000): Promise<CryptoKey> {
   const secret =
     customSecret ||
     (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_ENCRYPTION_KEY) ||
     "letscook_app_master_envelope_key_2026_secure";
 
-  if (derivedKeyCache.has(secret)) {
-    return derivedKeyCache.get(secret)!;
+  const cacheKey = `${secret}__iter_${iterations}`;
+  if (derivedKeyCache.has(cacheKey)) {
+    return derivedKeyCache.get(cacheKey)!;
   }
 
   const encoder = new TextEncoder();
@@ -32,7 +33,7 @@ async function deriveKey(customSecret?: string): Promise<CryptoKey> {
     {
       name: "PBKDF2",
       salt: encoder.encode(DEFAULT_KEY_SALT),
-      iterations: 10000,
+      iterations,
       hash: "SHA-256",
     },
     keyMaterial,
@@ -41,7 +42,7 @@ async function deriveKey(customSecret?: string): Promise<CryptoKey> {
     ["encrypt", "decrypt"]
   );
 
-  derivedKeyCache.set(secret, derived);
+  derivedKeyCache.set(cacheKey, derived);
   return derived;
 }
 
@@ -98,7 +99,7 @@ export async function encryptText(
   }
 
   try {
-    const key = await deriveKey(customKey);
+    const key = await deriveKey(customKey, 100000);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encodedData = new TextEncoder().encode(plainText);
 
@@ -159,18 +160,29 @@ export async function decryptText(
     fullCipherBuffer.set(ciphertext, 0);
     fullCipherBuffer.set(authTag, ciphertext.length);
 
-    const key = await deriveKey(customKey);
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: iv as BufferSource,
-        tagLength: 128,
-      },
-      key,
-      fullCipherBuffer as BufferSource
-    );
+    // Try primary 100k iterations, then 10k iterations
+    const iterationTries = [100000, 10000];
 
-    return new TextDecoder().decode(decryptedBuffer);
+    for (const iters of iterationTries) {
+      try {
+        const key = await deriveKey(customKey, iters);
+        const decryptedBuffer = await crypto.subtle.decrypt(
+          {
+            name: "AES-GCM",
+            iv: iv as BufferSource,
+            tagLength: 128,
+          },
+          key,
+          fullCipherBuffer as BufferSource
+        );
+
+        return new TextDecoder().decode(decryptedBuffer);
+      } catch {
+        // Continue to fallback
+      }
+    }
+
+    return cipherText;
   } catch (error) {
     console.error("[Encryption] Failed to decrypt:", error);
     return cipherText;

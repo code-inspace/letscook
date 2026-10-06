@@ -1,8 +1,10 @@
 import { ShoppingItem, RecipeContribution } from "./types";
 import { categorizeIngredient } from "./categorizer";
 import { createClient } from "@/utils/supabase/client";
-import { fetchMealPlansFromDb } from "@/features/calendar/actions";
-import { fetchRecipesFromDb } from "@/features/recipes/actions";
+import { MealPlan } from "@/features/calendar/types";
+import { fetchMealPlansFromDb, getStoredMealPlans } from "@/features/calendar/actions";
+import { Recipe } from "@/features/recipes/types";
+import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
 
 const SHOPPING_ITEMS_KEY_PREFIX = "letscook_shopping_items_";
 const GLOBAL_GROCERIES_CACHE_KEY = "letscook_shopping_items_global_cache";
@@ -162,40 +164,64 @@ export async function syncAndFetchShoppingList(
   const todayStr = new Date().toISOString().split("T")[0];
   const excludedKeys = new Set(getStoredExcludedIngredients(userId));
 
-  // 1. Fetch upcoming meal plans, recipes, and existing DB shopping items in parallel
-  const [plans, recipes, dbShoppingResult] = await Promise.all([
-    fetchMealPlansFromDb(userId),
-    fetchRecipesFromDb(userId),
-    supabase
-      .from("shopping_items")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false }),
-  ]);
+  // 1. Fetch upcoming meal plans, recipes, and existing DB shopping items with full offline fallback
+  let plans = getStoredMealPlans(userId);
+  let recipes = getStoredRecipes(userId);
+  let existingDbItems: any[] = [];
+
+  try {
+    const [fetchedPlans, fetchedRecipes, dbShoppingResult] = await Promise.all([
+      fetchMealPlansFromDb(userId).catch(() => getStoredMealPlans(userId)),
+      fetchRecipesFromDb(userId).catch(() => getStoredRecipes(userId)),
+      supabase
+        .from("shopping_items")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false }),
+    ]);
+    if (fetchedPlans && fetchedPlans.length > 0) plans = fetchedPlans;
+    if (fetchedRecipes && fetchedRecipes.length > 0) recipes = fetchedRecipes;
+    if (dbShoppingResult && Array.isArray(dbShoppingResult.data)) {
+      existingDbItems = dbShoppingResult.data;
+    }
+  } catch (netErr) {
+    console.warn("syncAndFetchShoppingList running in offline mode:", netErr);
+  }
 
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
-  const existingDbItems = (dbShoppingResult.data || []) as any[];
+  const cachedItems = getStoredShoppingItems(userId);
 
-  // Track checked states from existing DB items
+  // Track checked states from existing DB items or local cache
   const checkStatusMap = new Map<string, boolean>();
-  existingDbItems.forEach((row) => {
-    checkStatusMap.set(row.id, Boolean(row.checked));
-  });
+  if (existingDbItems.length > 0) {
+    existingDbItems.forEach((row) => {
+      checkStatusMap.set(row.id, Boolean(row.checked));
+    });
+  } else {
+    cachedItems.forEach((it) => {
+      checkStatusMap.set(it.id, Boolean(it.checked));
+    });
+  }
 
-  // Extract custom manual items from DB
-  const customItems: ShoppingItem[] = existingDbItems
-    .filter((row) => row.is_custom)
-    .map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      name: row.name,
-      amount: row.amount,
-      unit: row.unit,
-      checked: Boolean(row.checked),
-      isCustom: true,
-      category: row.category || categorizeIngredient(row.name),
-      createdAt: row.created_at || new Date().toISOString(),
-    }));
+  // Extract custom manual items (from DB if available, else from local cache)
+  let customItems: ShoppingItem[] = [];
+  if (existingDbItems.length > 0) {
+    customItems = existingDbItems
+      .filter((row) => row.is_custom)
+      .map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        amount: row.amount,
+        unit: row.unit,
+        checked: Boolean(row.checked),
+        isCustom: true,
+        category: row.category || categorizeIngredient(row.name),
+        createdAt: row.created_at || new Date().toISOString(),
+      }));
+  } else {
+    customItems = cachedItems.filter((row) => row.isCustom);
+  }
 
   // 2. Extract upcoming meal plans (today & future)
   const upcomingPlans = plans.filter((p) => p.date >= todayStr);
