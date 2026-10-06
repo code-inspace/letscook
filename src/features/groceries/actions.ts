@@ -5,27 +5,79 @@ import { fetchMealPlansFromDb } from "@/features/calendar/actions";
 import { fetchRecipesFromDb } from "@/features/recipes/actions";
 
 const SHOPPING_ITEMS_KEY_PREFIX = "letscook_shopping_items_";
+const GLOBAL_GROCERIES_CACHE_KEY = "letscook_shopping_items_global_cache";
 const EXCLUDED_ITEMS_KEY_PREFIX = "letscook_excluded_groceries_";
 
+let memoryShoppingItemsCache: ShoppingItem[] | null = null;
+
 export function getStoredShoppingItems(userId?: string): ShoppingItem[] {
-  if (!userId || typeof window === "undefined") return [];
+  if (typeof window === "undefined") return [];
+
+  // 1. In-memory cache
+  if (memoryShoppingItemsCache && memoryShoppingItemsCache.length > 0) {
+    return memoryShoppingItemsCache;
+  }
+
+  // 2. User specific key
+  if (userId) {
+    try {
+      const raw = localStorage.getItem(`${SHOPPING_ITEMS_KEY_PREFIX}${userId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          memoryShoppingItemsCache = parsed;
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Global cache
   try {
-    const raw = localStorage.getItem(`${SHOPPING_ITEMS_KEY_PREFIX}${userId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+    const globalRaw = localStorage.getItem(GLOBAL_GROCERIES_CACHE_KEY);
+    if (globalRaw) {
+      const parsed = JSON.parse(globalRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        memoryShoppingItemsCache = parsed;
+        return parsed;
+      }
+    }
+
+    // 4. Scan any groceries key in localStorage
+    const keys = Object.keys(localStorage).filter((k) =>
+      k.startsWith(SHOPPING_ITEMS_KEY_PREFIX)
+    );
+    let bestList: ShoppingItem[] = [];
+    for (const k of keys) {
+      try {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > bestList.length) {
+            bestList = parsed;
+          }
+        }
+      } catch {}
+    }
+    if (bestList.length > 0) {
+      memoryShoppingItemsCache = bestList;
+      return bestList;
     }
   } catch {}
+
   return [];
 }
 
-export function saveStoredShoppingItems(items: ShoppingItem[], userId: string): void {
-  if (!userId || typeof window === "undefined") return;
+export function saveStoredShoppingItems(items: ShoppingItem[], userId?: string): void {
+  if (typeof window === "undefined") return;
+  memoryShoppingItemsCache = items;
+
   try {
-    localStorage.setItem(
-      `${SHOPPING_ITEMS_KEY_PREFIX}${userId}`,
-      JSON.stringify(items)
-    );
+    const json = JSON.stringify(items);
+    if (userId) {
+      localStorage.setItem(`${SHOPPING_ITEMS_KEY_PREFIX}${userId}`, json);
+    }
+    localStorage.setItem(GLOBAL_GROCERIES_CACHE_KEY, json);
     window.dispatchEvent(new CustomEvent("letscook:groceries-updated"));
   } catch (err) {
     console.warn("saveStoredShoppingItems error:", err);

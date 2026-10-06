@@ -15,6 +15,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
+import { getStoredUserSession } from "@/features/auth/actions";
 import { ShoppingItem, RecipeContribution } from "@/features/groceries/types";
 import { CATEGORY_ICONS } from "@/features/groceries/categorizer";
 import {
@@ -43,8 +44,23 @@ export default function GroceriesPage() {
   const router = useRouter();
   const { user } = useAuth();
 
-  const [items, setItems] = useState<ShoppingItem[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [items, setItems] = useState<ShoppingItem[]>(() => {
+    if (typeof window !== "undefined") {
+      const session = getStoredUserSession();
+      return getStoredShoppingItems(session?.id);
+    }
+    return [];
+  });
+
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const session = getStoredUserSession();
+      const initial = getStoredShoppingItems(session?.id);
+      return initial.length === 0;
+    }
+    return true;
+  });
+
   const [newItemName, setNewItemName] = useState<string>("");
   const [newItemAmount, setNewItemAmount] = useState<string>("");
   const [newItemUnit, setNewItemUnit] = useState<string>("");
@@ -63,22 +79,21 @@ export default function GroceriesPage() {
   const isSyncingGroceriesRef = React.useRef<boolean>(false);
   const debounceGroceriesTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  const loadGroceries = useCallback(async (silent = false) => {
-    if (!user?.id || isSyncingGroceriesRef.current) return;
+  const loadGroceries = useCallback(async (silent = true) => {
+    const currentUserId = user?.id || getStoredUserSession()?.id;
+    if (!currentUserId || isSyncingGroceriesRef.current) return;
     isSyncingGroceriesRef.current = true;
 
     // 1. Instant local load
-    const cached = getStoredShoppingItems(user.id);
+    const cached = getStoredShoppingItems(currentUserId);
     if (cached.length > 0) {
       setItems(cached);
       setIsLoading(false);
-    } else if (!silent) {
-      setIsLoading(true);
     }
 
     // 2. Full synchronization with database upcoming meal plans + custom items
     try {
-      const fullList = await syncAndFetchShoppingList(user.id);
+      const fullList = await syncAndFetchShoppingList(currentUserId);
       setItems(fullList);
     } catch (err) {
       console.warn("loadGroceries sync error:", err);

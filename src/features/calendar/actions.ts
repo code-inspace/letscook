@@ -2,26 +2,74 @@ import { MealPlan } from "./types";
 import { createClient } from "@/utils/supabase/client";
 
 const MEAL_PLANS_KEY_PREFIX = "letscook_meal_plans_";
+const GLOBAL_MEAL_PLANS_CACHE_KEY = "letscook_meal_plans_global_cache";
+
+// In-memory runtime cache for 0ms synchronous retrieval
+let memoryMealPlansCache: MealPlan[] | null = null;
 
 export function getStoredMealPlans(userId?: string): MealPlan[] {
-  if (!userId || typeof window === "undefined") return [];
+  if (typeof window === "undefined") return [];
+
+  // 1. Check in-memory cache
+  if (memoryMealPlansCache && memoryMealPlansCache.length > 0) {
+    return memoryMealPlansCache;
+  }
+
+  // 2. Check user-specific localStorage key
+  if (userId) {
+    try {
+      const raw = localStorage.getItem(`${MEAL_PLANS_KEY_PREFIX}${userId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          memoryMealPlansCache = parsed;
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Check global cache key
   try {
-    const raw = localStorage.getItem(`${MEAL_PLANS_KEY_PREFIX}${userId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+    const globalRaw = localStorage.getItem(GLOBAL_MEAL_PLANS_CACHE_KEY);
+    if (globalRaw) {
+      const parsed = JSON.parse(globalRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        memoryMealPlansCache = parsed;
+        return parsed;
+      }
+    }
+
+    // 4. Scan any letscook_meal_plans_* keys in localStorage
+    const keys = Object.keys(localStorage).filter((k) =>
+      k.startsWith(MEAL_PLANS_KEY_PREFIX)
+    );
+    for (const k of keys) {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          memoryMealPlansCache = parsed;
+          return parsed;
+        }
+      }
     }
   } catch {}
+
   return [];
 }
 
-export function saveStoredMealPlans(plans: MealPlan[], userId: string): void {
-  if (!userId || typeof window === "undefined") return;
+export function saveStoredMealPlans(plans: MealPlan[], userId?: string): void {
+  if (typeof window === "undefined") return;
+  memoryMealPlansCache = plans;
   try {
-    localStorage.setItem(
-      `${MEAL_PLANS_KEY_PREFIX}${userId}`,
-      JSON.stringify(plans)
-    );
+    localStorage.setItem(GLOBAL_MEAL_PLANS_CACHE_KEY, JSON.stringify(plans));
+    if (userId) {
+      localStorage.setItem(
+        `${MEAL_PLANS_KEY_PREFIX}${userId}`,
+        JSON.stringify(plans)
+      );
+    }
     window.dispatchEvent(new CustomEvent("letscook:meal-plans-updated"));
   } catch (err) {
     console.warn("saveStoredMealPlans error:", err);
