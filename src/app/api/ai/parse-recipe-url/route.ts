@@ -113,8 +113,7 @@ export async function POST(req: NextRequest) {
 
             const embedRes = await fetch(embedUrl, {
               headers: {
-                "User-Agent":
-                  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
                 "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
               },
               signal: AbortSignal.timeout(10000),
@@ -129,7 +128,7 @@ export async function POST(req: NextRequest) {
                 socialAuthor = authorMatch[1].trim();
               }
 
-              // 2. Légende complète
+              // 2. Légende complète depuis le DOM rendu
               const captionBlockMatch = html.match(/<div class=["\']Caption["\'][^>]*>([\s\S]*?)<\/div>/i);
               if (captionBlockMatch) {
                 let rawCaption = captionBlockMatch[1];
@@ -143,12 +142,24 @@ export async function POST(req: NextRequest) {
                 }
               }
 
-              // 3. Image de couverture (Thumbnail)
+              // 3. Fallback légende si JSON présent
+              if (!socialCaption) {
+                const jsonTextMatch = html.match(/edge_media_to_caption[\s\S]*?\"text\":\"(.*?)\"/);
+                if (jsonTextMatch) {
+                  try {
+                    socialCaption = JSON.parse(`"${jsonTextMatch[1]}"`);
+                  } catch {
+                    socialCaption = jsonTextMatch[1];
+                  }
+                }
+              }
+
+              // 4. Image de couverture (Thumbnail)
               const imgMatch = html.match(/<img class=["\']EmbeddedMediaImage["\'][^>]*src=["\']([^"\']+)["\']/i);
               if (imgMatch) {
                 socialThumbnail = imgMatch[1].replace(/&amp;/g, "&");
               } else {
-                const displayUrlMatch = html.match(/\"display_url\":\"([^"]+)\"/i);
+                const displayUrlMatch = html.match(/\"display_url\":\"([^"]+)\"/i) || html.match(/\"thumbnail_src\":\"([^"]+)\"/i);
                 if (displayUrlMatch) {
                   socialThumbnail = displayUrlMatch[1].replace(/\\\//g, "/");
                 }
