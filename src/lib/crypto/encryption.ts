@@ -7,11 +7,17 @@
 const ENCRYPTION_PREFIX = "enc:v1:";
 const DEFAULT_KEY_SALT = "letscook_secure_salt_v1";
 
+const derivedKeyCache = new Map<string, CryptoKey>();
+
 async function deriveKey(customSecret?: string): Promise<CryptoKey> {
   const secret =
     customSecret ||
     (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_ENCRYPTION_KEY) ||
     "letscook_app_master_envelope_key_2026_secure";
+
+  if (derivedKeyCache.has(secret)) {
+    return derivedKeyCache.get(secret)!;
+  }
 
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -22,11 +28,11 @@ async function deriveKey(customSecret?: string): Promise<CryptoKey> {
     ["deriveKey"]
   );
 
-  return crypto.subtle.deriveKey(
+  const derived = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       salt: encoder.encode(DEFAULT_KEY_SALT),
-      iterations: 100000,
+      iterations: 10000,
       hash: "SHA-256",
     },
     keyMaterial,
@@ -34,6 +40,9 @@ async function deriveKey(customSecret?: string): Promise<CryptoKey> {
     false,
     ["encrypt", "decrypt"]
   );
+
+  derivedKeyCache.set(secret, derived);
+  return derived;
 }
 
 function bufferToBase64(buffer: ArrayBuffer | Uint8Array): string {

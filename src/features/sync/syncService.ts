@@ -76,15 +76,17 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       } catch {}
     }
 
-    // Direct encrypted upsert without firing individual intermediate events
-    for (const recipe of localRecipes) {
-      try {
-        const encryptedTitle = await encryptText(recipe.title);
-        const encryptedIngredients = await encryptText(JSON.stringify(recipe.ingredients || []));
-        const encryptedSteps = await encryptText(JSON.stringify(recipe.steps || []));
+    // Batch encrypt recipes and perform a single bulk upsert
+    if (localRecipes.length > 0) {
+      const recipePayloads = await Promise.all(
+        localRecipes.map(async (recipe) => {
+          const [encryptedTitle, encryptedIngredients, encryptedSteps] = await Promise.all([
+            encryptText(recipe.title),
+            encryptText(JSON.stringify(recipe.ingredients || [])),
+            encryptText(JSON.stringify(recipe.steps || [])),
+          ]);
 
-        await supabase.from("recipes").upsert([
-          {
+          return {
             id: recipe.id,
             user_id: userId,
             title: encryptedTitle,
@@ -103,10 +105,16 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
             steps: encryptedSteps,
             is_favorite: Boolean(recipe.isFavorite),
             updated_at: new Date().toISOString(),
-          },
-        ], { onConflict: "id" });
-      } catch (err) {
-        console.warn("Error uploading recipe to Supabase:", err);
+          };
+        })
+      );
+
+      const { error: upsertErr } = await supabase
+        .from("recipes")
+        .upsert(recipePayloads, { onConflict: "id" });
+
+      if (upsertErr) {
+        console.warn("Bulk recipe upsert error:", upsertErr);
       }
     }
 

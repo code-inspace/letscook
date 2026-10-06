@@ -121,7 +121,23 @@ export default function HomePage() {
     const cachedRecipes = getStoredRecipes(currentUserId);
     const cachedPlans = getStoredMealPlans(currentUserId);
     if (cachedRecipes.length > 0) {
-      setRecipes(sortRecipesStable(cachedRecipes));
+      setRecipes((prev) => {
+        const sorted = sortRecipesStable(cachedRecipes);
+        if (
+          prev.length === sorted.length &&
+          prev.every(
+            (r, i) =>
+              r.id === sorted[i]?.id &&
+              r.title === sorted[i]?.title &&
+              r.imageUrl === sorted[i]?.imageUrl &&
+              r.isFavorite === sorted[i]?.isFavorite &&
+              r.updatedAt === sorted[i]?.updatedAt
+          )
+        ) {
+          return prev;
+        }
+        return sorted;
+      });
       setMealPlans(cachedPlans);
       setIsLoadingRecipes(false);
     }
@@ -132,7 +148,23 @@ export default function HomePage() {
         fetchRecipesFromDb(currentUserId),
         fetchMealPlansFromDb(currentUserId),
       ]);
-      setRecipes(sortRecipesStable(dbRecipes));
+      setRecipes((prev) => {
+        const sorted = sortRecipesStable(dbRecipes);
+        if (
+          prev.length === sorted.length &&
+          prev.every(
+            (r, i) =>
+              r.id === sorted[i]?.id &&
+              r.title === sorted[i]?.title &&
+              r.imageUrl === sorted[i]?.imageUrl &&
+              r.isFavorite === sorted[i]?.isFavorite &&
+              r.updatedAt === sorted[i]?.updatedAt
+          )
+        ) {
+          return prev;
+        }
+        return sorted;
+      });
       setMealPlans(dbPlans);
     } catch (err) {
       console.warn("Erreur chargement données accueil:", err);

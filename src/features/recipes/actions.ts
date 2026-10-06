@@ -204,13 +204,11 @@ export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Re
 
   // 2. Encrypted Supabase Upsert linked to the user account
   try {
-    const encryptedTitle = await encryptText(recipeWithUser.title);
-    const encryptedIngredients = await encryptText(
-      JSON.stringify(recipeWithUser.ingredients)
-    );
-    const encryptedSteps = await encryptText(
-      JSON.stringify(recipeWithUser.steps)
-    );
+    const [encryptedTitle, encryptedIngredients, encryptedSteps] = await Promise.all([
+      encryptText(recipeWithUser.title),
+      encryptText(JSON.stringify(recipeWithUser.ingredients || [])),
+      encryptText(JSON.stringify(recipeWithUser.steps || [])),
+    ]);
 
     const payload = {
       id: recipeWithUser.id,
@@ -241,29 +239,26 @@ export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Re
       console.warn("saveRecipeToDb Supabase upsert error:", error);
     }
 
-    // 3. Upsert each ingredient into public.ingredients table
+    // 3. Upsert ingredients into public.ingredients table in a single batch
     if (recipeWithUser.ingredients && Array.isArray(recipeWithUser.ingredients)) {
-      for (const ing of recipeWithUser.ingredients) {
-        if (ing.name && ing.name.trim()) {
+      const distinctIngredients = recipeWithUser.ingredients
+        .filter((ing) => ing.name && ing.name.trim())
+        .map((ing) => {
           const cleanName = ing.name.trim();
           const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-          try {
-            await supabase
-              .from("ingredients")
-              .upsert(
-                [
-                  {
-                    id: ingId,
-                    name: cleanName,
-                    category: categorizeIngredient(cleanName),
-                    image_url: ing.imageUrl || null,
-                    updated_at: new Date().toISOString(),
-                  },
-                ],
-                { onConflict: "id" }
-              );
-          } catch {}
-        }
+          return {
+            id: ingId,
+            name: cleanName,
+            category: categorizeIngredient(cleanName),
+            image_url: ing.imageUrl || null,
+            updated_at: new Date().toISOString(),
+          };
+        });
+
+      if (distinctIngredients.length > 0) {
+        await supabase
+          .from("ingredients")
+          .upsert(distinctIngredients, { onConflict: "id" });
       }
     }
   } catch (err) {
