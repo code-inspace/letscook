@@ -16,13 +16,10 @@ export interface SyncResult {
 }
 
 let isSyncInProgress = false;
+let lastFullSyncTime = 0;
+const FULL_SYNC_COOLDOWN_MS = 60 * 1000; // 60s cooldown
 
-/**
- * Scans all local data on the device (localStorage) and synchronizes bidirectionally with Supabase.
- * - Performs quiet bulk upserts to Supabase without firing intermediate event loops.
- * - Emits a single notification at the end to keep the UI perfectly stable and responsive.
- */
-export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncResult> {
+export async function syncAllLocalDataToSupabase(userId: string, force = false): Promise<SyncResult> {
   if (!userId || typeof window === "undefined") {
     return {
       success: false,
@@ -32,6 +29,18 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
       ingredientsCount: 0,
       syncedAt: new Date().toISOString(),
       error: "Utilisateur non connecté.",
+    };
+  }
+
+  const now = Date.now();
+  if (!force && now - lastFullSyncTime < FULL_SYNC_COOLDOWN_MS) {
+    return {
+      success: true,
+      recipesCount: getStoredRecipes(userId).length,
+      mealPlansCount: getStoredMealPlans(userId).length,
+      shoppingCount: getStoredShoppingItems(userId).length,
+      ingredientsCount: 0,
+      syncedAt: new Date(lastFullSyncTime).toISOString(),
     };
   }
 
@@ -46,6 +55,7 @@ export async function syncAllLocalDataToSupabase(userId: string): Promise<SyncRe
     };
   }
 
+  lastFullSyncTime = now;
   isSyncInProgress = true;
   const supabase = createClient();
   let recipesCount = 0;

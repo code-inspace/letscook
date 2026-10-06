@@ -202,22 +202,52 @@ export function saveStoredRecipes(recipes: Recipe[], userId?: string): void {
   }
 }
 
-export async function fetchRecipesFromDb(userId: string): Promise<Recipe[]> {
+const SYNC_COOLDOWN_MS = 30 * 1000; // 30s throttling
+let lastFetchTimestamp = 0;
+
+export async function fetchRecipesFromDb(userId: string, forceFullRefresh = false): Promise<Recipe[]> {
   if (!userId) return getStoredRecipes();
   const supabase = createClient();
 
   const allLocal = getStoredRecipes(userId);
+  const now = Date.now();
+  const lastSyncKey = `letscook_recipes_last_synced_${userId}`;
+  const lastSyncIso = typeof window !== "undefined" ? localStorage.getItem(lastSyncKey) : null;
+
+  // If local cache is warm and sync happened within cooldown, avoid network roundtrip entirely
+  if (!forceFullRefresh && allLocal.length > 0 && now - lastFetchTimestamp < SYNC_COOLDOWN_MS) {
+    return allLocal;
+  }
+  lastFetchTimestamp = now;
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("recipes")
       .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+      .eq("user_id", userId);
 
-    if (!error && data && Array.isArray(data)) {
-      // Parallel fast decryption using in-memory string cache
-      const decryptedRecipes: Recipe[] = await Promise.all(
+    // Delta sync: If we already have cached recipes, only request recipes changed since last sync
+    if (!forceFullRefresh && allLocal.length > 0 && lastSyncIso) {
+      query = query.gt("updated_at", lastSyncIso);
+    } else {
+      query = query.order("created_at", { ascending: false });
+    }
+
+    const { data, error } = await query;
+
+    if (!error && data) {
+      const newSyncIso = new Date().toISOString();
+      if (typeof window !== "undefined") {
+        localStorage.setItem(lastSyncKey, newSyncIso);
+      }
+
+      // If no records changed on remote DB, return local cache immediately with ZERO data transfer
+      if (data.length === 0 && allLocal.length > 0) {
+        return allLocal;
+      }
+
+      // Parallel fast decryption using in-memory string cache on newly fetched items only
+      const decryptedDelta: Recipe[] = await Promise.all(
         data.map((row: any) =>
           decryptRecipe({
             id: row.id,
@@ -245,63 +275,15 @@ export async function fetchRecipesFromDb(userId: string): Promise<Recipe[]> {
         )
       );
 
-      // Merge remote DB recipes + all local recipes
+      // Merge delta recipes into local cache
       const mergedMap = new Map<string, Recipe>();
-      decryptedRecipes.forEach((r) => mergedMap.set(r.id, r));
-
-      const pendingSyncToDb: Recipe[] = [];
-      allLocal.forEach((r) => {
-        if (!mergedMap.has(r.id)) {
-          const withUser = { ...r, userId };
-          mergedMap.set(r.id, withUser);
-          pendingSyncToDb.push(withUser);
-        }
-      });
+      if (!forceFullRefresh) {
+        allLocal.forEach((r) => mergedMap.set(r.id, r));
+      }
+      decryptedDelta.forEach((r) => mergedMap.set(r.id, r));
 
       const finalList = Array.from(mergedMap.values());
       saveStoredRecipes(finalList, userId);
-
-      // Automatically sync missing local recipes to Supabase in background
-      if (pendingSyncToDb.length > 0) {
-        Promise.all(
-          pendingSyncToDb.map(async (recipe) => {
-            const clean = await decryptRecipe(recipe);
-            const [encryptedTitle, encryptedIngredients, encryptedSteps] = await Promise.all([
-              encryptText(clean.title),
-              encryptText(JSON.stringify(clean.ingredients || [])),
-              encryptText(JSON.stringify(clean.steps || [])),
-            ]);
-            return {
-              id: clean.id,
-              user_id: userId,
-              title: encryptedTitle,
-              subtitle: clean.subtitle,
-              category: clean.category,
-              image_url: clean.imageUrl,
-              prep_time_minutes: clean.prepTimeMinutes,
-              difficulty: clean.difficulty,
-              rating: clean.rating,
-              servings_base: clean.servingsBase || 6,
-              spice_level: clean.spiceLevel,
-              utensils: clean.utensils,
-              nutrition: clean.nutrition,
-              allergens: clean.allergens,
-              ingredients: encryptedIngredients,
-              steps: encryptedSteps,
-              source_url: clean.sourceUrl || null,
-              video_url: clean.videoUrl || null,
-              is_favorite: Boolean(clean.isFavorite),
-              updated_at: new Date().toISOString(),
-            };
-          })
-        )
-          .then(async (payloads) => {
-            await supabase.from("recipes").upsert(payloads, { onConflict: "id" });
-          })
-          .catch((err) => {
-            console.warn("Auto-syncing local recipes to DB warning:", err);
-          });
-      }
 
       return finalList;
     }

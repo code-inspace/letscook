@@ -76,8 +76,19 @@ export function saveStoredMealPlans(plans: MealPlan[], userId?: string): void {
   }
 }
 
-export async function fetchMealPlansFromDb(userId: string): Promise<MealPlan[]> {
+const MEAL_PLANS_COOLDOWN_MS = 30 * 1000;
+let lastMealPlansFetch = 0;
+
+export async function fetchMealPlansFromDb(userId: string, force = false): Promise<MealPlan[]> {
   if (!userId) return [];
+  const allLocal = getStoredMealPlans(userId);
+  const now = Date.now();
+
+  if (!force && allLocal.length > 0 && now - lastMealPlansFetch < MEAL_PLANS_COOLDOWN_MS) {
+    return allLocal;
+  }
+  lastMealPlansFetch = now;
+
   const supabase = createClient();
 
   try {
@@ -109,7 +120,7 @@ export async function fetchMealPlansFromDb(userId: string): Promise<MealPlan[]> 
     console.warn("fetchMealPlansFromDb error, using local storage:", err);
   }
 
-  return getStoredMealPlans(userId);
+  return allLocal;
 }
 
 export async function addOrUpdateMealPlan(

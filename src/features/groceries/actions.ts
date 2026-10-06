@@ -333,8 +333,19 @@ export async function syncAndFetchShoppingList(
   return fullList;
 }
 
-export async function fetchCustomShoppingItemsFromDb(userId: string): Promise<ShoppingItem[]> {
+const CUSTOM_SHOPPING_COOLDOWN_MS = 30 * 1000;
+let lastCustomShoppingFetch = 0;
+
+export async function fetchCustomShoppingItemsFromDb(userId: string, force = false): Promise<ShoppingItem[]> {
   if (!userId) return [];
+  const stored = getStoredShoppingItems(userId);
+  const now = Date.now();
+
+  if (!force && stored.length > 0 && now - lastCustomShoppingFetch < CUSTOM_SHOPPING_COOLDOWN_MS) {
+    return stored.filter((item) => item.isCustom);
+  }
+  lastCustomShoppingFetch = now;
+
   const supabase = createClient();
 
   try {
@@ -362,7 +373,6 @@ export async function fetchCustomShoppingItemsFromDb(userId: string): Promise<Sh
     console.warn("fetchCustomShoppingItemsFromDb error:", err);
   }
 
-  const stored = getStoredShoppingItems(userId);
   return stored.filter((item) => item.isCustom);
 }
 

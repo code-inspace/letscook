@@ -99,35 +99,98 @@ export async function POST(req: NextRequest) {
       let socialThumbnail = "";
       let socialAuthor = "";
 
-      // A. Essai via les API oEmbed officielles
-      try {
-        let oembedUrl = "";
-        if (isInstagram) {
-          oembedUrl = `https://api.instagram.com/oembed?url=${encodeURIComponent(url)}&omitscript=true`;
-        } else if (isTikTok) {
-          oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
-        } else if (isYouTube) {
-          oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-        }
+      // A. SPÉCIFIQUE INSTAGRAM : Extraction via le Captioned Embed Endpoint officiel
+      if (isInstagram) {
+        try {
+          const igMatch =
+            url.match(/instagram\.com\/(?:reel|p|tv|share)\/([a-zA-Z0-9_-]+)/i) ||
+            url.match(/instagr\.am\/([a-zA-Z0-9_-]+)/i);
 
-        log(`Interrogation oEmbed : ${oembedUrl}`);
-        const oembedRes = await fetch(oembedUrl, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" },
-          signal: AbortSignal.timeout(8000),
-        });
+          if (igMatch && igMatch[1]) {
+            const shortcode = igMatch[1];
+            const embedUrl = `https://www.instagram.com/p/${shortcode}/embed/captioned/`;
+            log(`Extraction Instagram via Embed : ${embedUrl}`);
 
-        if (oembedRes.ok) {
-          const oembedData = await oembedRes.json();
-          socialCaption = oembedData.title || oembedData.description || "";
-          socialThumbnail = oembedData.thumbnail_url || "";
-          socialAuthor = oembedData.author_name || "";
-          log(`Données oEmbed récupérées avec succès (${socialCaption.length} caractères dans la légende).`);
+            const embedRes = await fetch(embedUrl, {
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+              },
+              signal: AbortSignal.timeout(10000),
+            });
+
+            if (embedRes.ok) {
+              const html = await embedRes.text();
+
+              // 1. Auteur
+              const authorMatch = html.match(/class=["\']CaptionUsername["\'][^>]*>([^<]+)<\/a>/i);
+              if (authorMatch) {
+                socialAuthor = authorMatch[1].trim();
+              }
+
+              // 2. Légende complète
+              const captionBlockMatch = html.match(/<div class=["\']Caption["\'][^>]*>([\s\S]*?)<\/div>/i);
+              if (captionBlockMatch) {
+                let rawCaption = captionBlockMatch[1];
+                rawCaption = rawCaption.replace(/<a class=["\']CaptionUsername["\'][^>]*>[\s\S]*?<\/a>/gi, "");
+                rawCaption = rawCaption.replace(/<br\s*[\/]?>/gi, "\n");
+                let cleanCaption = rawCaption.replace(/<[^>]+>/g, "").trim();
+                cleanCaption = cleanCaption.replace(/View all \d+ comments[\s\S]*$/i, "").trim();
+                if (cleanCaption) {
+                  socialCaption = cleanCaption;
+                  log(`Légende Instagram extraite avec succès (${socialCaption.length} caractères).`);
+                }
+              }
+
+              // 3. Image de couverture (Thumbnail)
+              const imgMatch = html.match(/<img class=["\']EmbeddedMediaImage["\'][^>]*src=["\']([^"\']+)["\']/i);
+              if (imgMatch) {
+                socialThumbnail = imgMatch[1].replace(/&amp;/g, "&");
+              } else {
+                const displayUrlMatch = html.match(/\"display_url\":\"([^"]+)\"/i);
+                if (displayUrlMatch) {
+                  socialThumbnail = displayUrlMatch[1].replace(/\\\//g, "/");
+                }
+              }
+            }
+          }
+        } catch (igEmbedErr) {
+          log(`Instagram Embed warning : ${igEmbedErr}`);
         }
-      } catch (oembedErr) {
-        log(`oEmbed non disponible, passage au scraper OpenGraph : ${oembedErr}`);
       }
 
-      // B. Secours OpenGraph avec headers mobiles
+      // B. Essai via les API oEmbed officielles (pour TikTok, YouTube, ou fallback IG)
+      if (!socialCaption || !socialThumbnail) {
+        try {
+          let oembedUrl = "";
+          if (isInstagram) {
+            oembedUrl = `https://api.instagram.com/oembed?url=${encodeURIComponent(url)}&omitscript=true`;
+          } else if (isTikTok) {
+            oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+          } else if (isYouTube) {
+            oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+          }
+
+          log(`Interrogation oEmbed : ${oembedUrl}`);
+          const oembedRes = await fetch(oembedUrl, {
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" },
+            signal: AbortSignal.timeout(8000),
+          });
+
+          if (oembedRes.ok) {
+            const oembedData = await oembedRes.json();
+            if (!socialCaption) socialCaption = oembedData.title || oembedData.description || "";
+            if (!socialThumbnail) socialThumbnail = oembedData.thumbnail_url || "";
+            if (!socialAuthor) socialAuthor = oembedData.author_name || "";
+            log(`Données oEmbed récupérées (${socialCaption.length} caractères dans la légende).`);
+          }
+        } catch (oembedErr) {
+          log(`oEmbed non disponible : ${oembedErr}`);
+        }
+      }
+
+      // C. Secours OpenGraph avec headers mobiles et crawler
       if (!socialCaption || !socialThumbnail) {
         try {
           const socialHtmlRes = await fetch(url, {
@@ -153,12 +216,12 @@ export async function POST(req: NextRequest) {
         } catch {}
       }
 
-      // C. Analyse par Gemini 2.5 Flash
+      // D. Analyse par Gemini 2.5 Flash
       const geminiApiKey =
         process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
       if (!geminiApiKey) {
-        throw new Error("Clé API Gemini manquante pour analyser la vidéo Instagram.");
+        throw new Error("Clé API Gemini manquante pour analyser la vidéo.");
       }
 
       log("Analyse sémantique et culinaire de la publication avec Google Gemini...");
