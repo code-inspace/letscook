@@ -28,6 +28,7 @@ import {
   Film,
   ExternalLink,
   Globe,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { getStoredUserSession } from "@/features/auth/actions";
@@ -747,28 +748,48 @@ export default function RecipeDetailPage() {
             </button>
           )}
         </div>
+      </div>
 
-        {/* Servings Stepper (Only on Ingredients tab) */}
-        {activeTab === "ingredients" && (
-          <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-2xs">
+      {/* Servings Selector (Below Tab Bar) */}
+      {activeTab === "ingredients" && (
+        <div className="px-6 mt-3.5 flex items-center justify-between gap-2">
+          {/* Quick Access Toggle: 1 pers <-> 6 pers */}
+          <button
+            type="button"
+            onClick={() => setServings(servings === 6 ? 1 : 6)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#5DB534] text-xs font-extrabold border border-emerald-200/60 shadow-2xs active:scale-95 transition-all cursor-pointer"
+            title={servings === 6 ? "Passer à 1 personne" : "Passer à 6 personnes"}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>
+              {servings === 6 ? "Passer à 1 pers." : "Passer à 6 pers."}
+            </span>
+          </button>
+
+          {/* Stepper +/- */}
+          <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-2xs">
             <button
+              type="button"
               onClick={() => setServings((s) => Math.max(1, s - 1))}
-              className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-slate-900 font-bold text-xs active:scale-95"
+              className="w-6 h-6 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 hover:text-slate-900 font-extrabold text-sm active:scale-95 transition-all cursor-pointer"
+              title="Diminuer les portions"
             >
-              -
+              −
             </button>
-            <span className="text-xs font-bold text-[#181A20] min-w-[55px] text-center">
-              {servings} pers.
+            <span className="text-xs font-extrabold text-[#181A20] min-w-[55px] text-center">
+              {servings} {servings > 1 ? "pers." : "pers."}
             </span>
             <button
+              type="button"
               onClick={() => setServings((s) => s + 1)}
-              className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-slate-900 font-bold text-xs active:scale-95"
+              className="w-6 h-6 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 hover:text-slate-900 font-extrabold text-sm active:scale-95 transition-all cursor-pointer"
+              title="Augmenter les portions"
             >
               +
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Tab Content */}
       <div className="px-6 mt-4 flex-1">
