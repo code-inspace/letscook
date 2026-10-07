@@ -22,13 +22,10 @@ import {
   Grid,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { getStoredUserSession } from "@/features/auth/actions";
-import { Recipe } from "@/features/recipes/types";
-import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
+import { useRecipes } from "@/features/recipes/actions";
 import { MealPlan, MealType } from "@/features/calendar/types";
 import {
-  fetchMealPlansFromDb,
-  getStoredMealPlans,
+  useMealPlans,
   addOrUpdateMealPlan,
   deleteMealPlanFromDb,
 } from "@/features/calendar/actions";
@@ -93,21 +90,10 @@ export default function CalendarPage() {
   // View state: 'planning' (Agenda view with only recipe days) | 'grid' (Monthly calendar)
   const [calendarView, setCalendarView] = useState<"planning" | "grid">("planning");
 
-  const [mealPlans, setMealPlans] = useState<MealPlan[]>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      return getStoredMealPlans(session?.id);
-    }
-    return [];
-  });
-
-  const [recipes, setRecipes] = useState<Recipe[]>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      return getStoredRecipes(session?.id);
-    }
-    return [];
-  });
+  const storedPlans = useMealPlans(user?.id);
+  const storedRecipes = useRecipes(user?.id);
+  const mealPlans = useMemo(() => storedPlans || [], [storedPlans]);
+  const recipes = useMemo(() => storedRecipes || [], [storedRecipes]);
 
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -128,30 +114,6 @@ export default function CalendarPage() {
 
   const todayRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Load recipes and meal plans from Supabase / local cache
-  useEffect(() => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    if (!currentUserId) return;
-
-    setMealPlans(getStoredMealPlans(currentUserId));
-    setRecipes(getStoredRecipes(currentUserId));
-
-    fetchMealPlansFromDb(currentUserId)
-      .then((plans) => setMealPlans(plans))
-      .catch(() => {});
-    fetchRecipesFromDb(currentUserId)
-      .then((recs) => setRecipes(recs))
-      .catch(() => {});
-
-    const handleUpdate = () => {
-      setMealPlans(getStoredMealPlans(currentUserId));
-    };
-    window.addEventListener("letscook:meal-plans-updated", handleUpdate);
-    return () => {
-      window.removeEventListener("letscook:meal-plans-updated", handleUpdate);
-    };
-  }, [user?.id]);
 
   const recipeMap = useMemo(
     () => new Map(recipes.map((r) => [r.id, r])),
@@ -258,13 +220,15 @@ export default function CalendarPage() {
   };
 
   const handleSaveMealPlan = async () => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
+    const currentUserId = user?.id;
     if (!currentUserId || !selectedDate || !selectedRecipeId) return;
 
     const chosenRecipe = recipes.find((r) => r.id === selectedRecipeId);
     if (!chosenRecipe) return;
 
-    const newPlan = await addOrUpdateMealPlan(
+    // The local store (and therefore the UI) is updated synchronously; network runs in background
+    setIsModalOpen(false);
+    await addOrUpdateMealPlan(
       {
         recipeId: chosenRecipe.id,
         recipeTitle: chosenRecipe.title,
@@ -276,19 +240,15 @@ export default function CalendarPage() {
       currentUserId
     );
 
-    await syncAndFetchShoppingList(currentUserId);
-
-    setMealPlans((prev) => [...prev.filter((p) => p.id !== newPlan.id), newPlan]);
-    setIsModalOpen(false);
+    syncAndFetchShoppingList(currentUserId, true);
   };
 
   const handleDeleteMealPlan = async (planId: string) => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
+    const currentUserId = user?.id;
     if (!currentUserId) return;
-    await deleteMealPlanFromDb(planId, currentUserId);
-    await syncAndFetchShoppingList(currentUserId);
-    setMealPlans((prev) => prev.filter((p) => p.id !== planId));
     setSelectedPlanDetails(null);
+    await deleteMealPlanFromDb(planId, currentUserId);
+    syncAndFetchShoppingList(currentUserId, true);
   };
 
   const filteredRecipes = recipes.filter((r) =>

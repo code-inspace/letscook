@@ -1,13 +1,17 @@
+import { useEffect, useState } from "react";
 import { Recipe } from "./types";
 import { encryptText, decryptText, isEncrypted } from "@/lib/crypto/encryption";
 import { createClient } from "@/utils/supabase/client";
 import { categorizeIngredient } from "@/features/groceries/categorizer";
+import { createUserListStore, useUserList } from "@/lib/userStore";
+import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
+import { mealPlansStore } from "@/features/calendar/actions";
 
-const RECIPES_STORAGE_KEY_PREFIX = "letscook_recipes_";
-const GLOBAL_CACHE_KEY = "letscook_recipes_global_cache";
+export const recipesStore = createUserListStore<Recipe>(
+  "letscook_recipes_",
+  "letscook:recipes-updated"
+);
 
-// In-memory runtime caches for instant synchronous retrieval
-let memoryRecipesCache: Recipe[] | null = null;
 const decryptedTextCache = new Map<string, string>();
 
 async function fastDecrypt(cipher: string): Promise<string> {
@@ -22,58 +26,20 @@ async function fastDecrypt(cipher: string): Promise<string> {
   }
 }
 
-const INDIVIDUAL_RECIPE_PREFIX = "letscook_recipe_";
-
-export function getStoredRecipeById(recipeId: string, userId?: string): Recipe | null {
-  if (!recipeId || typeof window === "undefined") return null;
-
-  // 1. Check in-memory cache
-  if (memoryRecipesCache && memoryRecipesCache.length > 0) {
-    const found = memoryRecipesCache.find((r) => r.id === recipeId);
-    if (found) return found;
-  }
-
-  // 2. Check dedicated individual recipe localStorage key
-  try {
-    const indRaw = localStorage.getItem(`${INDIVIDUAL_RECIPE_PREFIX}${recipeId}`);
-    if (indRaw) {
-      const parsed = JSON.parse(indRaw);
-      if (parsed && parsed.id === recipeId) return parsed;
-    }
-  } catch {}
-
-  // 3. Check all stored recipes list
-  const list = getStoredRecipes(userId);
-  const found = list.find((r) => r.id === recipeId);
-  if (found) return found;
-
-  return null;
-}
-
-export function cacheRecipeOffline(recipe: Recipe): void {
-  if (!recipe || !recipe.id || typeof window === "undefined") return;
-  try {
-    localStorage.setItem(`${INDIVIDUAL_RECIPE_PREFIX}${recipe.id}`, JSON.stringify(recipe));
-  } catch (err) {
-    console.warn("cacheRecipeOffline error:", err);
-  }
-}
-
 export async function decryptRecipe(recipe: Recipe): Promise<Recipe> {
   if (!recipe) return recipe;
 
   let title = recipe.title;
-  let ingredients = recipe.ingredients;
-  let steps = recipe.steps;
+  let ingredients: unknown = recipe.ingredients;
+  let steps: unknown = recipe.steps;
 
   if (title && isEncrypted(title)) {
     title = await fastDecrypt(title);
   }
 
-  if (typeof ingredients === "string" && isEncrypted(ingredients)) {
-    const dec = await fastDecrypt(ingredients);
+  if (typeof ingredients === "string") {
     try {
-      ingredients = JSON.parse(dec);
+      ingredients = JSON.parse(await fastDecrypt(ingredients));
     } catch {
       ingredients = [];
     }
@@ -88,10 +54,9 @@ export async function decryptRecipe(recipe: Recipe): Promise<Recipe> {
     );
   }
 
-  if (typeof steps === "string" && isEncrypted(steps)) {
-    const dec = await fastDecrypt(steps);
+  if (typeof steps === "string") {
     try {
-      steps = JSON.parse(dec);
+      steps = JSON.parse(await fastDecrypt(steps));
     } catch {
       steps = [];
     }
@@ -105,193 +70,206 @@ export async function decryptRecipe(recipe: Recipe): Promise<Recipe> {
   };
 }
 
-export function getStoredRecipes(userId?: string): Recipe[] {
-  if (typeof window === "undefined") return [];
+export function getStoredRecipes(userId?: string | null): Recipe[] {
+  if (!userId || typeof window === "undefined") return [];
+  return recipesStore.read(userId);
+}
 
-  const recipeMap = new Map<string, Recipe>();
+export function getStoredRecipeById(recipeId: string, userId?: string | null): Recipe | null {
+  if (!recipeId) return null;
+  return getStoredRecipes(userId).find((r) => r.id === recipeId) || null;
+}
 
-  const ingest = (list: any[]) => {
-    if (!Array.isArray(list)) return;
-    for (const item of list) {
-      if (item && typeof item === "object" && item.id) {
-        if (!recipeMap.has(item.id)) {
-          recipeMap.set(item.id, item);
-        }
-      }
-    }
+export function saveStoredRecipes(recipes: Recipe[], userId?: string | null): void {
+  if (!userId) return;
+  recipesStore.write(userId, recipes);
+}
+
+function rowToRecipe(row: any): Recipe {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title || "Recette sans titre",
+    subtitle: row.subtitle ?? undefined,
+    category: row.category || "Main Dishes",
+    imageUrl: row.image_url || "",
+    prepTimeMinutes: row.prep_time_minutes || 30,
+    difficulty: row.difficulty || "Easy",
+    rating: Number(row.rating) || 5.0,
+    servingsBase: row.servings_base || 6,
+    spiceLevel: row.spice_level ?? undefined,
+    utensils: row.utensils || [],
+    nutrition: row.nutrition ?? undefined,
+    allergens: row.allergens || [],
+    ingredients: row.ingredients,
+    steps: row.steps,
+    sourceUrl: row.source_url || undefined,
+    videoUrl: row.video_url || undefined,
+    isFavorite: Boolean(row.is_favorite),
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
   };
+}
 
-  // 1. Check in-memory cache
-  if (memoryRecipesCache && Array.isArray(memoryRecipesCache) && memoryRecipesCache.length > 0) {
-    ingest(memoryRecipesCache);
+async function recipeToRow(recipe: Recipe, userId: string) {
+  const [title, ingredients, steps] = await Promise.all([
+    encryptText(recipe.title),
+    encryptText(JSON.stringify(recipe.ingredients || [])),
+    encryptText(JSON.stringify(recipe.steps || [])),
+  ]);
+  return {
+    id: recipe.id,
+    user_id: userId,
+    title,
+    subtitle: recipe.subtitle ?? null,
+    category: recipe.category,
+    image_url: recipe.imageUrl,
+    prep_time_minutes: recipe.prepTimeMinutes,
+    difficulty: recipe.difficulty,
+    rating: recipe.rating,
+    servings_base: recipe.servingsBase,
+    spice_level: recipe.spiceLevel ?? null,
+    utensils: recipe.utensils ?? [],
+    nutrition: recipe.nutrition ?? null,
+    allergens: recipe.allergens ?? [],
+    ingredients,
+    steps,
+    source_url: recipe.sourceUrl || null,
+    video_url: recipe.videoUrl || null,
+    is_favorite: Boolean(recipe.isFavorite),
+    created_at: recipe.createdAt,
+    updated_at: recipe.updatedAt || new Date().toISOString(),
+  };
+}
+
+const sameInstant = (a?: string, b?: string) => {
+  if (!a || !b) return false;
+  return Date.parse(a) === Date.parse(b);
+};
+
+const REFRESH_MIN_INTERVAL_MS = 15 * 1000;
+const lastRefreshAt = new Map<string, number>();
+const inflightRefresh = new Map<string, Promise<Recipe[]>>();
+
+/**
+ * Refreshes the local recipe cache from Supabase and returns the up-to-date list.
+ *
+ * Only the `id, updated_at` index is downloaded on every refresh; full rows are
+ * fetched just for recipes that are new or changed. Recipes deleted remotely are
+ * removed locally, and local changes not yet pushed (outbox) are preserved.
+ */
+export function fetchRecipesFromDb(userId: string, force = false): Promise<Recipe[]> {
+  if (!userId) return Promise.resolve([]);
+  const running = inflightRefresh.get(userId);
+  if (running) return running;
+  if (!force && Date.now() - (lastRefreshAt.get(userId) || 0) < REFRESH_MIN_INTERVAL_MS) {
+    return Promise.resolve(getStoredRecipes(userId));
   }
 
-  // 2. Check user-specific localStorage key
-  if (userId) {
+  const promise = (async () => {
+    const supabase = createClient();
+    const startedAt = Date.now();
     try {
-      const raw = localStorage.getItem(`${RECIPES_STORAGE_KEY_PREFIX}${userId}`);
-      if (raw) ingest(JSON.parse(raw));
-    } catch {}
-  }
+      const { data: index, error: indexError } = await supabase
+        .from("recipes")
+        .select("id, updated_at")
+        .eq("user_id", userId);
+      if (indexError || !index) throw indexError || new Error("Index vide");
 
-  // 3. Check global cache key
-  try {
-    const globalRaw = localStorage.getItem(GLOBAL_CACHE_KEY);
-    if (globalRaw) ingest(JSON.parse(globalRaw));
-  } catch {}
+      const localById = new Map(getStoredRecipes(userId).map((r) => [r.id, r]));
+      const toFetch = index
+        .filter((row) => {
+          const local = localById.get(row.id);
+          return !local || !sameInstant(local.updatedAt, row.updated_at);
+        })
+        .map((row) => row.id as string);
 
-  // 4. Scan any letscook_recipes_* and letscook_recipe_* keys in localStorage
-  try {
-    const keys = Object.keys(localStorage);
-    for (const key of keys) {
-      if (key.startsWith(RECIPES_STORAGE_KEY_PREFIX)) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (raw) ingest(JSON.parse(raw));
-        } catch {}
-      } else if (key.startsWith(INDIVIDUAL_RECIPE_PREFIX)) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed && parsed.id && !recipeMap.has(parsed.id)) {
-              recipeMap.set(parsed.id, parsed);
-            }
-          }
-        } catch {}
+      const fetched = new Map<string, Recipe>();
+      for (let i = 0; i < toFetch.length; i += 50) {
+        const { data, error } = await supabase
+          .from("recipes")
+          .select("*")
+          .eq("user_id", userId)
+          .in("id", toFetch.slice(i, i + 50));
+        if (error || !data) throw error || new Error("Lecture recettes impossible");
+        const decrypted = await Promise.all(data.map((row) => decryptRecipe(rowToRecipe(row))));
+        decrypted.forEach((r) => fetched.set(r.id, r));
       }
-    }
-  } catch {}
 
-  const merged = Array.from(recipeMap.values());
-  if (merged.length > 0) {
-    memoryRecipesCache = merged;
-    // If any item is encrypted, trigger background decryption
-    if (merged.some((r) => isEncrypted(r.title))) {
-      Promise.all(merged.map((r) => decryptRecipe(r))).then((cleanList) => {
-        saveStoredRecipes(cleanList, userId);
+      const remote = index
+        .map((row) => fetched.get(row.id) || localById.get(row.id))
+        .filter((r): r is Recipe => Boolean(r));
+
+      // Re-read local state: the user may have edited something while we were fetching
+      const current = getStoredRecipes(userId);
+      const merged = mergeWithPending(userId, "recipe", remote, current, startedAt);
+
+      const currentById = new Map(current.map((r) => [r.id, r]));
+      const unchanged =
+        merged.length === current.length &&
+        merged.every((r) => {
+          const c = currentById.get(r.id);
+          return c === r || (c && sameInstant(c.updatedAt, r.updatedAt) && c.isFavorite === r.isFavorite);
+        });
+      if (!unchanged) saveStoredRecipes(merged, userId);
+
+      lastRefreshAt.set(userId, Date.now());
+      return unchanged ? current : merged;
+    } catch (err) {
+      console.warn("fetchRecipesFromDb error, using local cache:", err);
+      return getStoredRecipes(userId);
+    } finally {
+      inflightRefresh.delete(userId);
+    }
+  })();
+
+  inflightRefresh.set(userId, promise);
+  return promise;
+}
+
+/** Pushes the local version of a recipe to Supabase (queued for retry on failure). */
+export async function pushRecipe(userId: string, recipeId: string): Promise<boolean> {
+  const recipe = getStoredRecipeById(recipeId, userId);
+  if (!recipe) {
+    dequeue(userId, "recipe", recipeId);
+    return true;
+  }
+  const supabase = createClient();
+  const ok = await runRemote(userId, { kind: "recipe", op: "upsert", id: recipeId }, async () =>
+    supabase.from("recipes").upsert([await recipeToRow(recipe, userId)], { onConflict: "id" })
+  );
+
+  if (ok && Array.isArray(recipe.ingredients)) {
+    const now = new Date().toISOString();
+    const ingredients = new Map<string, object>();
+    for (const ing of recipe.ingredients) {
+      const cleanName = ing?.name?.trim();
+      if (!cleanName) continue;
+      const id = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+      ingredients.set(id, {
+        id,
+        name: cleanName,
+        category: categorizeIngredient(cleanName),
+        image_url: ing.imageUrl || null,
+        updated_at: now,
       });
     }
-  }
-
-  return merged;
-}
-
-export function saveStoredRecipes(recipes: Recipe[], userId?: string): void {
-  if (typeof window === "undefined") return;
-  memoryRecipesCache = recipes;
-
-  try {
-    const json = JSON.stringify(recipes);
-    if (userId) {
-      localStorage.setItem(`${RECIPES_STORAGE_KEY_PREFIX}${userId}`, json);
+    if (ingredients.size > 0) {
+      // Shared ingredient catalog: best effort, never blocks the recipe save
+      supabase
+        .from("ingredients")
+        .upsert(Array.from(ingredients.values()), { onConflict: "id" })
+        .then(({ error }) => error && console.warn("ingredients upsert error:", error));
     }
-    // Always persist to global cache so all recipes are immediately available on load
-    localStorage.setItem(GLOBAL_CACHE_KEY, json);
-
-    // Cache each recipe individually for fast standalone offline lookups
-    recipes.forEach((r) => {
-      try {
-        localStorage.setItem(`${INDIVIDUAL_RECIPE_PREFIX}${r.id}`, JSON.stringify(r));
-      } catch {}
-    });
-
-    window.dispatchEvent(new CustomEvent("letscook:recipes-updated"));
-  } catch (err) {
-    console.warn("saveStoredRecipes error:", err);
   }
+  return ok;
 }
 
-const SYNC_COOLDOWN_MS = 30 * 1000; // 30s throttling
-let lastFetchTimestamp = 0;
-
-export async function fetchRecipesFromDb(userId: string, forceFullRefresh = false): Promise<Recipe[]> {
-  if (!userId) return getStoredRecipes();
+export async function pushRecipeDelete(userId: string, recipeId: string): Promise<boolean> {
   const supabase = createClient();
-
-  const allLocal = getStoredRecipes(userId);
-  const now = Date.now();
-  const lastSyncKey = `letscook_recipes_last_synced_${userId}`;
-  const lastSyncIso = typeof window !== "undefined" ? localStorage.getItem(lastSyncKey) : null;
-
-  // If local cache is warm and sync happened within cooldown, avoid network roundtrip entirely
-  if (!forceFullRefresh && allLocal.length > 0 && now - lastFetchTimestamp < SYNC_COOLDOWN_MS) {
-    return allLocal;
-  }
-  lastFetchTimestamp = now;
-
-  try {
-    let query = supabase
-      .from("recipes")
-      .select("*")
-      .eq("user_id", userId);
-
-    // Delta sync: If we already have cached recipes, only request recipes changed since last sync
-    if (!forceFullRefresh && allLocal.length > 0 && lastSyncIso) {
-      query = query.gt("updated_at", lastSyncIso);
-    } else {
-      query = query.order("created_at", { ascending: false });
-    }
-
-    const { data, error } = await query;
-
-    if (!error && data) {
-      const newSyncIso = new Date().toISOString();
-      if (typeof window !== "undefined") {
-        localStorage.setItem(lastSyncKey, newSyncIso);
-      }
-
-      // If no records changed on remote DB, return local cache immediately with ZERO data transfer
-      if (data.length === 0 && allLocal.length > 0) {
-        return allLocal;
-      }
-
-      // Parallel fast decryption using in-memory string cache on newly fetched items only
-      const decryptedDelta: Recipe[] = await Promise.all(
-        data.map((row: any) =>
-          decryptRecipe({
-            id: row.id,
-            userId: row.user_id,
-            title: row.title || "Recette sans titre",
-            subtitle: row.subtitle,
-            category: row.category || "Main Dishes",
-            imageUrl: row.image_url || "",
-            prepTimeMinutes: row.prep_time_minutes || 30,
-            difficulty: row.difficulty || "Easy",
-            rating: row.rating || 5.0,
-            servingsBase: row.servings_base || 6,
-            spiceLevel: row.spice_level,
-            utensils: row.utensils || [],
-            nutrition: row.nutrition,
-            allergens: row.allergens || [],
-            ingredients: row.ingredients,
-            steps: row.steps,
-            sourceUrl: row.source_url || row.sourceUrl,
-            videoUrl: row.video_url || row.videoUrl,
-            isFavorite: Boolean(row.is_favorite),
-            createdAt: row.created_at || new Date().toISOString(),
-            updatedAt: row.updated_at || new Date().toISOString(),
-          })
-        )
-      );
-
-      // Merge delta recipes into local cache
-      const mergedMap = new Map<string, Recipe>();
-      if (!forceFullRefresh) {
-        allLocal.forEach((r) => mergedMap.set(r.id, r));
-      }
-      decryptedDelta.forEach((r) => mergedMap.set(r.id, r));
-
-      const finalList = Array.from(mergedMap.values());
-      saveStoredRecipes(finalList, userId);
-
-      return finalList;
-    }
-  } catch (err) {
-    console.warn("fetchRecipesFromDb error, falling back to local cache:", err);
-  }
-
-  return allLocal;
+  return runRemote(userId, { kind: "recipe", op: "delete", id: recipeId }, () =>
+    supabase.from("recipes").delete().eq("id", recipeId).eq("user_id", userId)
+  );
 }
 
 export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Recipe> {
@@ -299,130 +277,69 @@ export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Re
     throw new Error("Authentification requise pour enregistrer une recette.");
   }
 
-  const recipeWithUser: Recipe = {
+  const saved: Recipe = {
     ...recipe,
     userId,
+    createdAt: recipe.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 
-  const supabase = createClient();
+  // 1. Instant local write
+  recipesStore.update(userId, (list) =>
+    list.some((r) => r.id === saved.id)
+      ? list.map((r) => (r.id === saved.id ? saved : r))
+      : [saved, ...list]
+  );
 
-  // 1. Instant local sync for snappy UI (0ms latency)
-  const current = getStoredRecipes(userId);
-  const existingIdx = current.findIndex((r) => r.id === recipeWithUser.id);
-  const updatedList =
-    existingIdx >= 0
-      ? current.map((r) => (r.id === recipeWithUser.id ? recipeWithUser : r))
-      : [recipeWithUser, ...current];
-  saveStoredRecipes(updatedList, userId);
-
-  // 2. Encrypted Supabase Upsert linked to the user account
-  try {
-    const [encryptedTitle, encryptedIngredients, encryptedSteps] = await Promise.all([
-      encryptText(recipeWithUser.title),
-      encryptText(JSON.stringify(recipeWithUser.ingredients || [])),
-      encryptText(JSON.stringify(recipeWithUser.steps || [])),
-    ]);
-
-    const payload = {
-      id: recipeWithUser.id,
-      user_id: userId,
-      title: encryptedTitle,
-      subtitle: recipeWithUser.subtitle,
-      category: recipeWithUser.category,
-      image_url: recipeWithUser.imageUrl,
-      prep_time_minutes: recipeWithUser.prepTimeMinutes,
-      difficulty: recipeWithUser.difficulty,
-      rating: recipeWithUser.rating,
-      servings_base: recipeWithUser.servingsBase,
-      spice_level: recipeWithUser.spiceLevel,
-      utensils: recipeWithUser.utensils,
-      nutrition: recipeWithUser.nutrition,
-      allergens: recipeWithUser.allergens,
-      ingredients: encryptedIngredients,
-      steps: encryptedSteps,
-      source_url: recipeWithUser.sourceUrl || null,
-      video_url: recipeWithUser.videoUrl || null,
-      is_favorite: Boolean(recipeWithUser.isFavorite),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await supabase
-      .from("recipes")
-      .upsert([payload], { onConflict: "id" });
-
-    if (error) {
-      console.warn("saveRecipeToDb Supabase upsert error:", error);
-    }
-
-    // 3. Upsert ingredients into public.ingredients table in a single batch
-    if (recipeWithUser.ingredients && Array.isArray(recipeWithUser.ingredients)) {
-      const distinctIngredients = recipeWithUser.ingredients
-        .filter((ing) => ing.name && ing.name.trim())
-        .map((ing) => {
-          const cleanName = ing.name.trim();
-          const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-          return {
-            id: ingId,
-            name: cleanName,
-            category: categorizeIngredient(cleanName),
-            image_url: ing.imageUrl || null,
-            updated_at: new Date().toISOString(),
-          };
-        });
-
-      if (distinctIngredients.length > 0) {
-        await supabase
-          .from("ingredients")
-          .upsert(distinctIngredients, { onConflict: "id" });
-      }
-    }
-  } catch (err) {
-    console.warn("saveRecipeToDb encryption/network error:", err);
-  }
-
-  return recipeWithUser;
+  // 2. Encrypted remote upsert (queued for retry if offline)
+  await pushRecipe(userId, saved.id);
+  return saved;
 }
 
 export async function deleteRecipeFromDb(recipeId: string, userId: string): Promise<void> {
   if (!userId) return;
-
-  const current = getStoredRecipes(userId);
-  const filtered = current.filter((r) => r.id !== recipeId);
-  saveStoredRecipes(filtered, userId);
-
-  try {
-    const supabase = createClient();
-    await supabase
-      .from("recipes")
-      .delete()
-      .eq("id", recipeId)
-      .eq("user_id", userId);
-  } catch (err) {
-    console.warn("deleteRecipeFromDb error:", err);
+  recipesStore.update(userId, (list) => list.filter((r) => r.id !== recipeId));
+  // Meal plans cascade-delete with the recipe in Supabase: mirror it locally
+  const plans = mealPlansStore.read(userId);
+  if (plans.some((p) => p.recipeId === recipeId)) {
+    mealPlansStore.write(userId, plans.filter((p) => p.recipeId !== recipeId));
   }
+  await pushRecipeDelete(userId, recipeId);
 }
 
 export async function toggleFavoriteInDb(recipeId: string, userId: string): Promise<boolean> {
   if (!userId) return false;
-
-  const current = getStoredRecipes(userId);
-  const target = current.find((r) => r.id === recipeId);
+  const target = getStoredRecipeById(recipeId, userId);
   if (!target) return false;
 
-  const newStatus = !target.isFavorite;
-  target.isFavorite = newStatus;
-  saveStoredRecipes(current, userId);
+  const updated: Recipe = {
+    ...target,
+    isFavorite: !target.isFavorite,
+    updatedAt: new Date().toISOString(),
+  };
+  recipesStore.update(userId, (list) => list.map((r) => (r.id === recipeId ? updated : r)));
+  await pushRecipe(userId, recipeId);
+  return Boolean(updated.isFavorite);
+}
 
-  try {
-    const supabase = createClient();
-    await supabase
-      .from("recipes")
-      .update({ is_favorite: newStatus, updated_at: new Date().toISOString() })
-      .eq("id", recipeId)
-      .eq("user_id", userId);
-  } catch (err) {
-    console.warn("toggleFavoriteInDb error:", err);
+/**
+ * Recipes of the given user, from the local cache, kept in sync with Supabase.
+ * Returns `null` until the cache is readable (SSR / hydration / unknown user).
+ */
+export function useRecipes(userId: string | null | undefined): Recipe[] | null {
+  const recipes = useUserList(recipesStore, userId);
+  const [settledFor, setSettledFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetchRecipesFromDb(userId).finally(() => !cancelled && setSettledFor(userId));
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+  // First visit on this device: wait for the first fetch instead of flashing an empty state
+  if (userId && recipes?.length === 0 && settledFor !== userId && recipesStore.isEmptyKey(userId)) {
+    return null;
   }
-
-  return newStatus;
+  return recipes;
 }

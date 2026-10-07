@@ -1,129 +1,37 @@
+import { useEffect } from "react";
 import { ShoppingItem, RecipeContribution } from "./types";
 import { categorizeIngredient } from "./categorizer";
 import { createClient } from "@/utils/supabase/client";
-import { MealPlan } from "@/features/calendar/types";
-import { fetchMealPlansFromDb, getStoredMealPlans } from "@/features/calendar/actions";
-import { Recipe } from "@/features/recipes/types";
-import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
+import { fetchMealPlansFromDb, getStoredMealPlans, mealPlansStore } from "@/features/calendar/actions";
+import { fetchRecipesFromDb, getStoredRecipes, recipesStore } from "@/features/recipes/actions";
+import { createUserListStore, useUserList } from "@/lib/userStore";
+import { toDateKey } from "@/lib/utils";
+import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
 
-const SHOPPING_ITEMS_KEY_PREFIX = "letscook_shopping_items_";
-const GLOBAL_GROCERIES_CACHE_KEY = "letscook_shopping_items_global_cache";
-const EXCLUDED_ITEMS_KEY_PREFIX = "letscook_excluded_groceries_";
+export const shoppingStore = createUserListStore<ShoppingItem>(
+  "letscook_shopping_items_",
+  "letscook:groceries-updated"
+);
+const excludedStore = createUserListStore<string>("letscook_excluded_groceries_");
 
-let memoryShoppingItemsCache: ShoppingItem[] | null = null;
-let lastShoppingListSyncTime = 0;
-const SYNC_COOLDOWN_MS = 25000; // 25 seconds cooldown to prevent constant refetching on tab switch
-
-export function invalidateGroceriesSyncCooldown(): void {
-  lastShoppingListSyncTime = 0;
-}
-
-export function getStoredShoppingItems(userId?: string): ShoppingItem[] {
-  if (typeof window === "undefined") return [];
-
-  // 1. In-memory cache
-  if (memoryShoppingItemsCache && memoryShoppingItemsCache.length > 0) {
-    return memoryShoppingItemsCache;
-  }
-
-  // 2. User specific key
-  if (userId) {
-    try {
-      const raw = localStorage.getItem(`${SHOPPING_ITEMS_KEY_PREFIX}${userId}`);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          memoryShoppingItemsCache = parsed;
-          return parsed;
-        }
-      }
-    } catch {}
-  }
-
-  // 3. Global cache
-  try {
-    const globalRaw = localStorage.getItem(GLOBAL_GROCERIES_CACHE_KEY);
-    if (globalRaw) {
-      const parsed = JSON.parse(globalRaw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        memoryShoppingItemsCache = parsed;
-        return parsed;
-      }
-    }
-
-    // 4. Scan any groceries key in localStorage
-    const keys = Object.keys(localStorage).filter((k) =>
-      k.startsWith(SHOPPING_ITEMS_KEY_PREFIX)
-    );
-    let bestList: ShoppingItem[] = [];
-    for (const k of keys) {
-      try {
-        const raw = localStorage.getItem(k);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > bestList.length) {
-            bestList = parsed;
-          }
-        }
-      } catch {}
-    }
-    if (bestList.length > 0) {
-      memoryShoppingItemsCache = bestList;
-      return bestList;
-    }
-  } catch {}
-
-  return [];
-}
-
-export function saveStoredShoppingItems(
-  items: ShoppingItem[],
-  userId?: string,
-  notify = true
-): void {
-  if (typeof window === "undefined") return;
-
-  const previousJson = JSON.stringify(memoryShoppingItemsCache || []);
-  const newJson = JSON.stringify(items);
-  const isDifferent = previousJson !== newJson;
-
-  memoryShoppingItemsCache = items;
-
-  try {
-    if (userId) {
-      localStorage.setItem(`${SHOPPING_ITEMS_KEY_PREFIX}${userId}`, newJson);
-    }
-    localStorage.setItem(GLOBAL_GROCERIES_CACHE_KEY, newJson);
-    if (notify && isDifferent) {
-      window.dispatchEvent(new CustomEvent("letscook:groceries-updated"));
-    }
-  } catch (err) {
-    console.warn("saveStoredShoppingItems error:", err);
-  }
-}
-
-export function getStoredExcludedIngredients(userId?: string): string[] {
+export function getStoredShoppingItems(userId?: string | null): ShoppingItem[] {
   if (!userId || typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(`${EXCLUDED_ITEMS_KEY_PREFIX}${userId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch {}
-  return [];
+  return shoppingStore.read(userId);
+}
+
+export function saveStoredShoppingItems(items: ShoppingItem[], userId?: string | null): void {
+  if (!userId) return;
+  shoppingStore.write(userId, items);
+}
+
+export function getStoredExcludedIngredients(userId?: string | null): string[] {
+  if (!userId || typeof window === "undefined") return [];
+  return excludedStore.read(userId);
 }
 
 export function saveStoredExcludedIngredients(keys: string[], userId: string): void {
-  if (!userId || typeof window === "undefined") return;
-  try {
-    localStorage.setItem(
-      `${EXCLUDED_ITEMS_KEY_PREFIX}${userId}`,
-      JSON.stringify(keys)
-    );
-  } catch (err) {
-    console.warn("saveStoredExcludedIngredients error:", err);
-  }
+  if (!userId) return;
+  excludedStore.write(userId, keys);
 }
 
 export function normalizeIngredientKey(name: string): string {
@@ -131,7 +39,7 @@ export function normalizeIngredientKey(name: string): string {
   let s = name
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .trim();
   // Remove leading articles (un, une, des, du, de, d', le, la, les)
   s = s.replace(/^(un|une|des|du|de|la|le|les|d'|d’)\s+/i, "");
@@ -140,108 +48,54 @@ export function normalizeIngredientKey(name: string): string {
   return s.trim();
 }
 
+const time = (iso?: string) => (iso ? Date.parse(iso) || 0 : 0);
+
+interface RemoteCheckState {
+  checked: boolean;
+  updatedAt?: string;
+}
+
 /**
- * Computes, synchronizes and saves the full shopping list directly in Supabase DB:
- * 1. Reads existing DB shopping items.
- * 2. Mutualizes upcoming meal plan ingredients (date >= today).
- * 3. Persists all rows into public.shopping_items in Supabase.
+ * Recomputes the shopping list locally from upcoming meal plans + recipes.
+ *
+ * Purely local and synchronous: the list never waits for (nor is reordered by)
+ * the network. Checked states are kept from the current list; when `remote`
+ * states are provided, the most recently updated one wins.
  */
-export async function syncAndFetchShoppingList(
+function rebuildShoppingList(
   userId: string,
-  force = false
-): Promise<ShoppingItem[]> {
-  if (!userId) return [];
-
-  // If sync was performed recently and not forced, return cached items immediately
-  if (!force && Date.now() - lastShoppingListSyncTime < SYNC_COOLDOWN_MS) {
-    const cached = getStoredShoppingItems(userId);
-    if (cached.length > 0) {
-      return cached;
-    }
-  }
-
-  const supabase = createClient();
-  const todayStr = new Date().toISOString().split("T")[0];
+  remote?: Map<string, RemoteCheckState>
+): ShoppingItem[] {
+  const current = getStoredShoppingItems(userId);
+  const currentById = new Map(current.map((i) => [i.id, i]));
   const excludedKeys = new Set(getStoredExcludedIngredients(userId));
+  const recipeMap = new Map(getStoredRecipes(userId).map((r) => [r.id, r]));
+  const today = toDateKey();
 
-  // 1. Fetch upcoming meal plans, recipes, and existing DB shopping items with full offline fallback
-  let plans = getStoredMealPlans(userId);
-  let recipes = getStoredRecipes(userId);
-  let existingDbItems: any[] = [];
+  // Stable order: by date, then creation, then id
+  const upcomingPlans = getStoredMealPlans(userId)
+    .filter((p) => p.date >= today)
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        (a.createdAt || "").localeCompare(b.createdAt || "") ||
+        a.id.localeCompare(b.id)
+    );
 
-  try {
-    const [fetchedPlans, fetchedRecipes, dbShoppingResult] = await Promise.all([
-      fetchMealPlansFromDb(userId).catch(() => getStoredMealPlans(userId)),
-      fetchRecipesFromDb(userId).catch(() => getStoredRecipes(userId)),
-      supabase
-        .from("shopping_items")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false }),
-    ]);
-    if (fetchedPlans && fetchedPlans.length > 0) plans = fetchedPlans;
-    if (fetchedRecipes && fetchedRecipes.length > 0) recipes = fetchedRecipes;
-    if (dbShoppingResult && Array.isArray(dbShoppingResult.data)) {
-      existingDbItems = dbShoppingResult.data;
-    }
-  } catch (netErr) {
-    console.warn("syncAndFetchShoppingList running in offline mode:", netErr);
-  }
-
-  const recipeMap = new Map(recipes.map((r) => [r.id, r]));
-  const cachedItems = getStoredShoppingItems(userId);
-
-  // Track checked states from existing DB items or local cache
-  const checkStatusMap = new Map<string, boolean>();
-  if (existingDbItems.length > 0) {
-    existingDbItems.forEach((row) => {
-      checkStatusMap.set(row.id, Boolean(row.checked));
-    });
-  } else {
-    cachedItems.forEach((it) => {
-      checkStatusMap.set(it.id, Boolean(it.checked));
-    });
-  }
-
-  // Extract custom manual items (from DB if available, else from local cache)
-  let customItems: ShoppingItem[] = [];
-  if (existingDbItems.length > 0) {
-    customItems = existingDbItems
-      .filter((row) => row.is_custom)
-      .map((row) => ({
-        id: row.id,
-        userId: row.user_id,
-        name: row.name,
-        amount: row.amount,
-        unit: row.unit,
-        checked: Boolean(row.checked),
-        isCustom: true,
-        category: row.category || categorizeIngredient(row.name),
-        createdAt: row.created_at || new Date().toISOString(),
-      }));
-  } else {
-    customItems = cachedItems.filter((row) => row.isCustom);
-  }
-
-  // 2. Extract upcoming meal plans (today & future)
-  const upcomingPlans = plans.filter((p) => p.date >= todayStr);
-
-  // Aggregation Map by normalized key (e.g. "carotte" -> merged item with 10 + 5 = 15 carottes)
-  const aggregatedMap = new Map<string, ShoppingItem>();
+  const aggregated = new Map<string, ShoppingItem>();
 
   for (const plan of upcomingPlans) {
     const recipe = recipeMap.get(plan.recipeId);
-    if (!recipe || !recipe.ingredients) continue;
+    if (!recipe || !Array.isArray(recipe.ingredients)) continue;
 
     for (const ing of recipe.ingredients) {
+      if (!ing?.name) continue;
       const normKey = normalizeIngredientKey(ing.name);
-      const uniqueKey = `${plan.id}_${normKey}`;
+      if (!normKey) continue;
       const legacyKey = `${plan.id}_${ing.name.toLowerCase().trim()}`;
+      if (excludedKeys.has(`${plan.id}_${normKey}`) || excludedKeys.has(legacyKey)) continue;
 
-      if (excludedKeys.has(uniqueKey) || excludedKeys.has(legacyKey)) continue;
-
-      const deptCategory = categorizeIngredient(ing.name);
-      const recipeContribution: RecipeContribution = {
+      const contribution: RecipeContribution = {
         recipeId: recipe.id,
         recipeTitle: recipe.title,
         recipeImageUrl: recipe.imageUrl,
@@ -251,129 +105,215 @@ export async function syncAndFetchShoppingList(
         mealPlanDate: plan.date,
       };
 
-      if (aggregatedMap.has(normKey)) {
-        const existing = aggregatedMap.get(normKey)!;
+      const existing = aggregated.get(normKey);
+      if (existing) {
         if (typeof existing.amount === "number" && typeof ing.amount === "number") {
           existing.amount = Math.round((existing.amount + ing.amount) * 100) / 100;
-        } else if (typeof ing.amount === "number" && existing.amount === null) {
+        } else if (typeof ing.amount === "number" && existing.amount == null) {
           existing.amount = ing.amount;
         }
-
-        if (!existing.unit && ing.unit) {
-          existing.unit = ing.unit;
+        if (!existing.unit && ing.unit) existing.unit = ing.unit;
+        if (
+          !existing.recipeSources!.some(
+            (s) => s.mealPlanId === plan.id && s.recipeId === recipe.id
+          )
+        ) {
+          existing.recipeSources!.push(contribution);
         }
-
-        if (!existing.recipeSources) {
-          existing.recipeSources = [];
-        }
-
-        const hasSource = existing.recipeSources.some(
-          (s) => s.mealPlanId === plan.id && s.recipeId === recipe.id
-        );
-        if (!hasSource) {
-          existing.recipeSources.push(recipeContribution);
-        }
-      } else {
-        const itemId = `auto_${normKey}`;
-        const isChecked = checkStatusMap.get(itemId) ?? false;
-
-        aggregatedMap.set(normKey, {
-          id: itemId,
-          userId,
-          name: ing.name,
-          normalizedKey: normKey,
-          amount: ing.amount || null,
-          unit: ing.unit || null,
-          checked: isChecked,
-          isCustom: false,
-          recipeId: recipe.id,
-          recipeTitle: recipe.title,
-          recipeImageUrl: recipe.imageUrl,
-          recipeSources: [recipeContribution],
-          mealPlanId: plan.id,
-          mealPlanDate: plan.date,
-          category: deptCategory,
-          imageUrl: ing.imageUrl,
-          createdAt: plan.createdAt,
-        });
+        continue;
       }
+
+      const id = `auto_${normKey}`;
+      const mine = currentById.get(id);
+      const theirs = remote?.get(id);
+      const useRemote = theirs && (!mine || time(theirs.updatedAt) > time(mine.updatedAt));
+
+      aggregated.set(normKey, {
+        id,
+        userId,
+        name: ing.name,
+        normalizedKey: normKey,
+        amount: ing.amount || null,
+        unit: ing.unit || null,
+        checked: useRemote ? theirs!.checked : Boolean(mine?.checked),
+        isCustom: false,
+        recipeId: recipe.id,
+        recipeTitle: recipe.title,
+        recipeImageUrl: recipe.imageUrl,
+        recipeSources: [contribution],
+        mealPlanId: plan.id,
+        mealPlanDate: plan.date,
+        category: categorizeIngredient(ing.name),
+        imageUrl: ing.imageUrl,
+        createdAt: mine?.createdAt || plan.createdAt,
+        updatedAt: useRemote ? theirs!.updatedAt : mine?.updatedAt,
+      });
     }
   }
 
-  const autoItems = Array.from(aggregatedMap.values());
-  const fullList = [...autoItems, ...customItems];
+  const customItems = current.filter((i) => i.isCustom);
+  const next = [...aggregated.values(), ...customItems];
 
-  // 3. Persist all mutualized and custom items directly to Supabase DB
-  try {
-    const dbPayloads = fullList.map((item) => ({
-      id: item.id,
-      user_id: userId,
-      name: item.name,
-      amount: item.amount,
-      unit: item.unit,
-      checked: item.checked,
-      is_custom: item.isCustom,
-      recipe_id: item.recipeId || null,
-      recipe_title: item.recipeTitle || null,
-      meal_plan_id: item.mealPlanId || null,
-      meal_plan_date: item.mealPlanDate || null,
-      category: item.category || "Articles divers",
-      updated_at: new Date().toISOString(),
-    }));
-
-    if (dbPayloads.length > 0) {
-      await supabase.from("shopping_items").upsert(dbPayloads, { onConflict: "id" });
-    }
-  } catch (err) {
-    console.warn("syncAndFetchShoppingList DB persist error:", err);
+  if (JSON.stringify(next) !== JSON.stringify(current)) {
+    saveStoredShoppingItems(next, userId);
+    return next;
   }
-
-  lastShoppingListSyncTime = Date.now();
-  saveStoredShoppingItems(fullList, userId);
-  return fullList;
+  return current;
 }
 
-const CUSTOM_SHOPPING_COOLDOWN_MS = 30 * 1000;
-let lastCustomShoppingFetch = 0;
+function itemToRow(item: ShoppingItem, userId: string) {
+  return {
+    id: item.id,
+    user_id: userId,
+    name: item.name,
+    amount: item.amount ?? null,
+    unit: item.unit || null,
+    checked: Boolean(item.checked),
+    is_custom: Boolean(item.isCustom),
+    recipe_id: item.recipeId || null,
+    recipe_title: item.recipeTitle || null,
+    // Aggregated items span several meal plans: no FK to a single plan, which would
+    // cascade-delete the row (and its checked state) when that one plan is removed.
+    meal_plan_id: null,
+    meal_plan_date: item.mealPlanDate || null,
+    category: item.category || "Articles divers",
+    created_at: item.createdAt,
+    updated_at: item.updatedAt || new Date().toISOString(),
+  };
+}
 
-export async function fetchCustomShoppingItemsFromDb(userId: string, force = false): Promise<ShoppingItem[]> {
-  if (!userId) return [];
-  const stored = getStoredShoppingItems(userId);
-  const now = Date.now();
+function rowToCustomItem(row: any): ShoppingItem {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    amount: row.amount != null ? Number(row.amount) : null,
+    unit: row.unit,
+    checked: Boolean(row.checked),
+    isCustom: true,
+    category: row.category || categorizeIngredient(row.name),
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || undefined,
+  };
+}
 
-  if (!force && stored.length > 0 && now - lastCustomShoppingFetch < CUSTOM_SHOPPING_COOLDOWN_MS) {
-    return stored.filter((item) => item.isCustom);
+const REFRESH_MIN_INTERVAL_MS = 15 * 1000;
+const lastRefreshAt = new Map<string, number>();
+const inflightRefresh = new Map<string, Promise<ShoppingItem[]>>();
+
+/**
+ * Rebuilds the shopping list locally, then reconciles it with Supabase:
+ * pulls checked states / custom items changed on other devices, pushes local
+ * differences and removes rows that no longer belong to the list.
+ */
+export function syncAndFetchShoppingList(userId: string, force = false): Promise<ShoppingItem[]> {
+  if (!userId) return Promise.resolve([]);
+  const local = rebuildShoppingList(userId);
+
+  const running = inflightRefresh.get(userId);
+  if (running) return running;
+  if (!force && Date.now() - (lastRefreshAt.get(userId) || 0) < REFRESH_MIN_INTERVAL_MS) {
+    return Promise.resolve(local);
   }
-  lastCustomShoppingFetch = now;
 
-  const supabase = createClient();
+  const promise = (async () => {
+    const startedAt = Date.now();
+    const supabase = createClient();
+    try {
+      await Promise.all([fetchMealPlansFromDb(userId), fetchRecipesFromDb(userId)]);
 
-  try {
-    const { data, error } = await supabase
-      .from("shopping_items")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("is_custom", true)
-      .order("created_at", { ascending: false });
+      const { data: rows, error } = await supabase
+        .from("shopping_items")
+        .select("*")
+        .eq("user_id", userId);
+      if (error || !rows) throw error || new Error("Lecture liste de courses impossible");
 
-    if (!error && data && Array.isArray(data)) {
-      return data.map((row: any) => ({
-        id: row.id,
-        userId: row.user_id,
-        name: row.name,
-        amount: row.amount,
-        unit: row.unit,
-        checked: Boolean(row.checked),
-        isCustom: true,
-        category: row.category || categorizeIngredient(row.name),
-        createdAt: row.created_at || new Date().toISOString(),
-      }));
+      // 1. Custom items: remote is the truth, except for unsynced local changes
+      const current = getStoredShoppingItems(userId);
+      const mergedCustom = mergeWithPending(
+        userId,
+        "shopping",
+        rows.filter((r) => r.is_custom).map(rowToCustomItem),
+        current.filter((i) => i.isCustom),
+        startedAt
+      );
+      const withCustom = [...current.filter((i) => !i.isCustom), ...mergedCustom];
+      if (JSON.stringify(withCustom) !== JSON.stringify(current)) {
+        saveStoredShoppingItems(withCustom, userId);
+      }
+
+      // 2. Auto items: recompute, taking the newest checked state
+      const remoteAuto = new Map<string, RemoteCheckState>(
+        rows
+          .filter((r) => !r.is_custom)
+          .map((r) => [r.id, { checked: Boolean(r.checked), updatedAt: r.updated_at }])
+      );
+      const list = rebuildShoppingList(userId, remoteAuto);
+
+      // 3. Push auto rows that differ, delete auto rows that left the list
+      const rowsById = new Map(rows.map((r) => [r.id, r]));
+      const toUpsert = list
+        .filter((i) => !i.isCustom)
+        .filter((i) => {
+          const r = rowsById.get(i.id);
+          return (
+            !r ||
+            Boolean(r.checked) !== i.checked ||
+            r.name !== i.name ||
+            Number(r.amount ?? NaN) !== Number(i.amount ?? NaN) ||
+            (r.unit || null) !== (i.unit || null)
+          );
+        })
+        .map((i) => itemToRow(i, userId));
+      const listIds = new Set(list.map((i) => i.id));
+      const stale = rows.filter((r) => !r.is_custom && !listIds.has(r.id)).map((r) => r.id);
+
+      if (toUpsert.length > 0) {
+        const { error: upsertError } = await supabase
+          .from("shopping_items")
+          .upsert(toUpsert, { onConflict: "id" });
+        if (upsertError) console.warn("shopping_items upsert error:", upsertError);
+      }
+      if (stale.length > 0) {
+        const { error: deleteError } = await supabase
+          .from("shopping_items")
+          .delete()
+          .eq("user_id", userId)
+          .in("id", stale);
+        if (deleteError) console.warn("shopping_items cleanup error:", deleteError);
+      }
+
+      lastRefreshAt.set(userId, Date.now());
+      return list;
+    } catch (err) {
+      console.warn("syncAndFetchShoppingList offline, using local list:", err);
+      return getStoredShoppingItems(userId);
+    } finally {
+      inflightRefresh.delete(userId);
     }
-  } catch (err) {
-    console.warn("fetchCustomShoppingItemsFromDb error:", err);
-  }
+  })();
 
-  return stored.filter((item) => item.isCustom);
+  inflightRefresh.set(userId, promise);
+  return promise;
+}
+
+export async function pushShoppingItem(userId: string, itemId: string): Promise<boolean> {
+  const item = getStoredShoppingItems(userId).find((i) => i.id === itemId);
+  if (!item) {
+    dequeue(userId, "shopping", itemId);
+    return true;
+  }
+  return runRemote(userId, { kind: "shopping", op: "upsert", id: itemId }, () =>
+    createClient()
+      .from("shopping_items")
+      .upsert([itemToRow(item, userId)], { onConflict: "id" })
+  );
+}
+
+export async function pushShoppingDelete(userId: string, itemId: string): Promise<boolean> {
+  return runRemote(userId, { kind: "shopping", op: "delete", id: itemId }, () =>
+    createClient().from("shopping_items").delete().eq("id", itemId).eq("user_id", userId)
+  );
 }
 
 export async function addCustomShoppingItem(
@@ -384,8 +324,7 @@ export async function addCustomShoppingItem(
 ): Promise<ShoppingItem> {
   if (!userId) throw new Error("Authentification requise");
 
-  const deptCategory = categorizeIngredient(name);
-
+  const now = new Date().toISOString();
   const newItem: ShoppingItem = {
     id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     userId,
@@ -394,50 +333,24 @@ export async function addCustomShoppingItem(
     unit: unit ? unit.trim() : null,
     checked: false,
     isCustom: true,
-    category: deptCategory,
-    createdAt: new Date().toISOString(),
+    category: categorizeIngredient(name),
+    createdAt: now,
+    updatedAt: now,
   };
 
-  const current = getStoredShoppingItems(userId);
-  const filtered = current.filter((i) => i.id !== newItem.id);
-  saveStoredShoppingItems([newItem, ...filtered], userId);
+  shoppingStore.update(userId, (list) => [newItem, ...list]);
+  await pushShoppingItem(userId, newItem.id);
 
-  try {
-    const supabase = createClient();
-    await supabase.from("shopping_items").upsert([
-      {
-        id: newItem.id,
-        user_id: userId,
-        name: newItem.name,
-        amount: newItem.amount,
-        unit: newItem.unit,
-        checked: newItem.checked,
-        is_custom: true,
-        category: newItem.category,
-        updated_at: new Date().toISOString(),
-      },
-    ], { onConflict: "id" });
-
-    // Également insérer l'ingrédient dans la table public.ingredients si nouveau
-    const cleanName = newItem.name.trim();
-    if (cleanName) {
-      const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-      await supabase
-        .from("ingredients")
-        .upsert(
-          [
-            {
-              id: ingId,
-              name: cleanName,
-              category: newItem.category,
-              updated_at: new Date().toISOString(),
-            },
-          ],
-          { onConflict: "id" }
-        );
-    }
-  } catch (err) {
-    console.warn("addCustomShoppingItem DB error:", err);
+  // Shared ingredient catalog (autocomplete): best effort
+  const cleanName = newItem.name;
+  if (cleanName) {
+    const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+    createClient()
+      .from("ingredients")
+      .upsert([{ id: ingId, name: cleanName, category: newItem.category, updated_at: now }], {
+        onConflict: "id",
+      })
+      .then(({ error }) => error && console.warn("ingredients upsert error:", error));
   }
 
   return newItem;
@@ -449,179 +362,71 @@ export async function toggleShoppingItemInDb(
   userId: string
 ): Promise<void> {
   if (!userId) return;
-
   const itemId = typeof itemOrId === "string" ? itemOrId : itemOrId.id;
-  const current = getStoredShoppingItems(userId);
-  const targetItem = current.find((i) => i.id === itemId) || (typeof itemOrId === "object" ? itemOrId : null);
-
-  const updated = current.map((i) =>
-    i.id === itemId ? { ...i, checked: newChecked } : i
+  const now = new Date().toISOString();
+  shoppingStore.update(userId, (list) =>
+    list.map((i) => (i.id === itemId ? { ...i, checked: newChecked, updatedAt: now } : i))
   );
-  saveStoredShoppingItems(updated, userId);
-
-  try {
-    const supabase = createClient();
-    if (targetItem) {
-      const payload = {
-        id: targetItem.id,
-        user_id: userId,
-        name: targetItem.name,
-        amount: targetItem.amount || null,
-        unit: targetItem.unit || null,
-        checked: newChecked,
-        is_custom: Boolean(targetItem.isCustom),
-        recipe_id: targetItem.recipeId || null,
-        recipe_title: targetItem.recipeTitle || null,
-        meal_plan_id: targetItem.mealPlanId || null,
-        meal_plan_date: targetItem.mealPlanDate || null,
-        category: targetItem.category || "Articles divers",
-        updated_at: new Date().toISOString(),
-      };
-      await supabase.from("shopping_items").upsert([payload], { onConflict: "id" });
-    } else {
-      await supabase
-        .from("shopping_items")
-        .update({ checked: newChecked, updated_at: new Date().toISOString() })
-        .eq("id", itemId)
-        .eq("user_id", userId);
-    }
-  } catch (err) {
-    console.warn("toggleShoppingItemInDb error:", err);
-  }
+  await pushShoppingItem(userId, itemId);
 }
 
-export async function deleteShoppingItemFromList(
-  item: ShoppingItem,
-  userId: string
-): Promise<void> {
+function exclusionKeysFor(item: ShoppingItem): string[] {
+  if (item.isCustom) return [];
+  const normKey = item.normalizedKey || normalizeIngredientKey(item.name);
+  const legacyName = item.name.toLowerCase().trim();
+  const planIds = item.recipeSources?.length
+    ? item.recipeSources.map((s) => s.mealPlanId).filter((id): id is string => Boolean(id))
+    : item.mealPlanId
+    ? [item.mealPlanId]
+    : [];
+  return planIds.flatMap((planId) => [`${planId}_${normKey}`, `${planId}_${legacyName}`]);
+}
+
+function excludeItems(items: ShoppingItem[], userId: string) {
+  const keys = items.flatMap(exclusionKeysFor);
+  if (keys.length === 0) return;
+  const current = getStoredExcludedIngredients(userId);
+  const next = Array.from(new Set([...current, ...keys]));
+  if (next.length > current.length) saveStoredExcludedIngredients(next, userId);
+}
+
+export async function deleteShoppingItemFromList(item: ShoppingItem, userId: string): Promise<void> {
   if (!userId) return;
-
-  // 1. If auto recipe item: add all contributing recipe keys to excluded items
-  if (!item.isCustom) {
-    const excluded = getStoredExcludedIngredients(userId);
-    const newExcluded = [...excluded];
-    const normKey = item.normalizedKey || normalizeIngredientKey(item.name);
-
-    if (item.recipeSources && item.recipeSources.length > 0) {
-      for (const source of item.recipeSources) {
-        if (source.mealPlanId) {
-          const k1 = `${source.mealPlanId}_${normKey}`;
-          const k2 = `${source.mealPlanId}_${item.name.toLowerCase().trim()}`;
-          if (!newExcluded.includes(k1)) newExcluded.push(k1);
-          if (!newExcluded.includes(k2)) newExcluded.push(k2);
-        }
-      }
-    } else if (item.mealPlanId) {
-      const k1 = `${item.mealPlanId}_${normKey}`;
-      const k2 = `${item.mealPlanId}_${item.name.toLowerCase().trim()}`;
-      if (!newExcluded.includes(k1)) newExcluded.push(k1);
-      if (!newExcluded.includes(k2)) newExcluded.push(k2);
-    }
-
-    if (newExcluded.length > excluded.length) {
-      saveStoredExcludedIngredients(newExcluded, userId);
-    }
-  }
-
-  // 2. Remove from local list
-  const current = getStoredShoppingItems(userId);
-  const filtered = current.filter((i) => i.id !== item.id);
-  saveStoredShoppingItems(filtered, userId);
-
-  // 3. Delete row directly from Supabase DB
-  try {
-    const supabase = createClient();
-    await supabase
-      .from("shopping_items")
-      .delete()
-      .eq("id", item.id)
-      .eq("user_id", userId);
-  } catch (err) {
-    console.warn("deleteShoppingItemFromList DB error:", err);
-  }
+  // Auto items are excluded so they don't respawn on the next rebuild
+  excludeItems([item], userId);
+  shoppingStore.update(userId, (list) => list.filter((i) => i.id !== item.id));
+  await pushShoppingDelete(userId, item.id);
 }
 
 export async function clearCompletedShoppingItems(userId: string): Promise<void> {
   if (!userId) return;
-  const current = getStoredShoppingItems(userId);
-  const checkedItems = current.filter((i) => i.checked);
-  const unchecked = current.filter((i) => !i.checked);
-
-  // Exclude completed auto-recipe ingredients so they don't immediately respawn
-  const excluded = getStoredExcludedIngredients(userId);
-  const newExcluded = [...excluded];
-  for (const item of checkedItems) {
-    if (!item.isCustom) {
-      const normKey = item.normalizedKey || normalizeIngredientKey(item.name);
-      if (item.recipeSources && item.recipeSources.length > 0) {
-        for (const source of item.recipeSources) {
-          if (source.mealPlanId) {
-            const k1 = `${source.mealPlanId}_${normKey}`;
-            const k2 = `${source.mealPlanId}_${item.name.toLowerCase().trim()}`;
-            if (!newExcluded.includes(k1)) newExcluded.push(k1);
-            if (!newExcluded.includes(k2)) newExcluded.push(k2);
-          }
-        }
-      } else if (item.mealPlanId) {
-        const k1 = `${item.mealPlanId}_${normKey}`;
-        const k2 = `${item.mealPlanId}_${item.name.toLowerCase().trim()}`;
-        if (!newExcluded.includes(k1)) newExcluded.push(k1);
-        if (!newExcluded.includes(k2)) newExcluded.push(k2);
-      }
-    }
-  }
-  if (newExcluded.length > excluded.length) {
-    saveStoredExcludedIngredients(newExcluded, userId);
-  }
-
-  saveStoredShoppingItems(unchecked, userId);
-
-  try {
-    const supabase = createClient();
-    await supabase
-      .from("shopping_items")
-      .delete()
-      .eq("user_id", userId)
-      .eq("checked", true);
-  } catch (err) {
-    console.warn("clearCompletedShoppingItems error:", err);
-  }
+  const checked = getStoredShoppingItems(userId).filter((i) => i.checked);
+  if (checked.length === 0) return;
+  excludeItems(checked, userId);
+  shoppingStore.update(userId, (list) => list.filter((i) => !i.checked));
+  await Promise.all(checked.map((i) => pushShoppingDelete(userId, i.id)));
 }
 
-export async function saveEntireShoppingListToDb(
-  items: ShoppingItem[],
-  userId: string
-): Promise<void> {
-  if (!userId) return;
-
-  saveStoredShoppingItems(items, userId);
-
-  try {
-    const supabase = createClient();
-    const dbPayloads = items.map((item) => ({
-      id: item.id,
-      user_id: userId,
-      name: item.name,
-      amount: item.amount || null,
-      unit: item.unit || null,
-      checked: Boolean(item.checked),
-      is_custom: Boolean(item.isCustom),
-      recipe_id: item.recipeId || null,
-      recipe_title: item.recipeTitle || null,
-      meal_plan_id: item.mealPlanId || null,
-      meal_plan_date: item.mealPlanDate || null,
-      category: item.category || "Articles divers",
-      updated_at: new Date().toISOString(),
-    }));
-
-    if (dbPayloads.length > 0) {
-      await supabase
-        .from("shopping_items")
-        .upsert(dbPayloads, { onConflict: "id" });
-    }
-  } catch (err) {
-    console.warn("saveEntireShoppingListToDb DB error:", err);
-  }
+/**
+ * Shopping list of the given user. Rebuilt instantly whenever recipes or meal
+ * plans change locally, reconciled with Supabase in the background.
+ */
+export function useShoppingItems(userId: string | null | undefined): ShoppingItem[] | null {
+  const items = useUserList(shoppingStore, userId);
+  useEffect(() => {
+    if (!userId) return;
+    syncAndFetchShoppingList(userId);
+    const rebuild = () => rebuildShoppingList(userId);
+    const unsubPlans = mealPlansStore.subscribe(rebuild);
+    const unsubRecipes = recipesStore.subscribe(rebuild);
+    const unsubExcluded = excludedStore.subscribe(rebuild);
+    return () => {
+      unsubPlans();
+      unsubRecipes();
+      unsubExcluded();
+    };
+  }, [userId]);
+  return items;
 }
 
 /**

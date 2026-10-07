@@ -3,24 +3,50 @@ import { createClient } from "@/utils/supabase/client";
 
 const USER_SESSION_STORAGE_KEY = "letscook_user_session";
 
+// Parsed session cached by its raw JSON so `getStoredUserSession` returns a stable
+// reference (required by useSyncExternalStore).
+let cachedRaw: string | null = null;
+let cachedSession: UserSession | null = null;
+const sessionListeners = new Set<() => void>();
+
 export function getStoredUserSession(): UserSession | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(USER_SESSION_STORAGE_KEY);
-    if (raw) {
-      return JSON.parse(raw);
+    if (raw !== cachedRaw) {
+      cachedRaw = raw;
+      cachedSession = raw ? JSON.parse(raw) : null;
     }
-  } catch {}
-  return null;
+  } catch {
+    cachedSession = null;
+  }
+  return cachedSession;
 }
 
 export function setStoredUserSession(user: UserSession | null): void {
   if (typeof window === "undefined") return;
-  if (!user) {
-    localStorage.removeItem(USER_SESSION_STORAGE_KEY);
-  } else {
-    localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(user));
-  }
+  try {
+    if (!user) {
+      localStorage.removeItem(USER_SESSION_STORAGE_KEY);
+    } else {
+      const raw = JSON.stringify(user);
+      if (raw === cachedRaw) return;
+      localStorage.setItem(USER_SESSION_STORAGE_KEY, raw);
+    }
+  } catch {}
+  sessionListeners.forEach((l) => l());
+}
+
+export function subscribeUserSession(listener: () => void): () => void {
+  sessionListeners.add(listener);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === USER_SESSION_STORAGE_KEY) listener();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    sessionListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 export async function signUpWithCredentials(

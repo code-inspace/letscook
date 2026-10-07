@@ -1,6 +1,5 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -15,8 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { signOutUser } from "@/features/auth/actions";
-import { getStoredUserSession } from "@/features/auth/actions";
-import { getStoredRecipes, fetchRecipesFromDb } from "@/features/recipes/actions";
+import { useRecipes } from "@/features/recipes/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 
 function getInitials(name?: string, email?: string): string {
@@ -41,31 +39,7 @@ function getInitials(name?: string, email?: string): string {
 export default function ProfilePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const [recipesCount, setRecipesCount] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      return getStoredRecipes(session?.id).length;
-    }
-    return 0;
-  });
-
-  useEffect(() => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    const cached = getStoredRecipes(currentUserId);
-    setRecipesCount(cached.length);
-
-    if (currentUserId) {
-      fetchRecipesFromDb(currentUserId).then((list) => setRecipesCount(list.length));
-    }
-
-    const handleUpdate = () => {
-      setRecipesCount(getStoredRecipes(currentUserId).length);
-    };
-    window.addEventListener("letscook:recipes-updated", handleUpdate);
-    return () => {
-      window.removeEventListener("letscook:recipes-updated", handleUpdate);
-    };
-  }, [user?.id]);
+  const recipesCount = useRecipes(user?.id)?.length ?? 0;
 
   const name = user?.name || user?.email?.split("@")[0] || "Chef Cuisinier";
   const email = user?.email || "";

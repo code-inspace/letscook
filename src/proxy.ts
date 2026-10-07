@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   let response = NextResponse.next({
@@ -38,10 +38,10 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  // Verify authenticated user from Supabase session
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verify the session JWT (locally when the project uses asymmetric signing keys,
+  // instead of a round trip to the Auth server on every navigation) and refresh it.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ? data.claims : null;
 
   const isLoginPage = pathname === "/login";
   const isPublicRoute =
@@ -69,6 +69,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

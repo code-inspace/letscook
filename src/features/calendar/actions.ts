@@ -1,126 +1,121 @@
+import { useEffect } from "react";
 import { MealPlan } from "./types";
 import { createClient } from "@/utils/supabase/client";
+import { createUserListStore, useUserList } from "@/lib/userStore";
+import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
 
-const MEAL_PLANS_KEY_PREFIX = "letscook_meal_plans_";
-const GLOBAL_MEAL_PLANS_CACHE_KEY = "letscook_meal_plans_global_cache";
+export const mealPlansStore = createUserListStore<MealPlan>(
+  "letscook_meal_plans_",
+  "letscook:meal-plans-updated"
+);
 
-// In-memory runtime cache for 0ms synchronous retrieval
-let memoryMealPlansCache: MealPlan[] | null = null;
+export function getStoredMealPlans(userId?: string | null): MealPlan[] {
+  if (!userId || typeof window === "undefined") return [];
+  return mealPlansStore.read(userId);
+}
 
-export function getStoredMealPlans(userId?: string): MealPlan[] {
-  if (typeof window === "undefined") return [];
+export function saveStoredMealPlans(plans: MealPlan[], userId?: string | null): void {
+  if (!userId) return;
+  mealPlansStore.write(userId, plans);
+}
 
-  // 1. Check in-memory cache
-  if (memoryMealPlansCache && memoryMealPlansCache.length > 0) {
-    return memoryMealPlansCache;
+function rowToMealPlan(row: any): MealPlan {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    recipeId: row.recipe_id,
+    recipeTitle: row.recipe_title || "Recette",
+    recipeImageUrl: row.recipe_image_url || undefined,
+    date: row.date,
+    mealType: row.meal_type || "dinner",
+    servings: row.servings || 6,
+    notes: row.notes || undefined,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || undefined,
+  };
+}
+
+const REFRESH_MIN_INTERVAL_MS = 15 * 1000;
+const lastRefreshAt = new Map<string, number>();
+const inflightRefresh = new Map<string, Promise<MealPlan[]>>();
+
+export function fetchMealPlansFromDb(userId: string, force = false): Promise<MealPlan[]> {
+  if (!userId) return Promise.resolve([]);
+  const running = inflightRefresh.get(userId);
+  if (running) return running;
+  if (!force && Date.now() - (lastRefreshAt.get(userId) || 0) < REFRESH_MIN_INTERVAL_MS) {
+    return Promise.resolve(getStoredMealPlans(userId));
   }
 
-  // 2. Check user-specific localStorage key
-  if (userId) {
+  const promise = (async () => {
+    const startedAt = Date.now();
     try {
-      const raw = localStorage.getItem(`${MEAL_PLANS_KEY_PREFIX}${userId}`);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          memoryMealPlansCache = parsed;
-          return parsed;
-        }
-      }
-    } catch {}
-  }
+      const { data, error } = await createClient()
+        .from("meal_plans")
+        .select("*")
+        .eq("user_id", userId)
+        .order("date", { ascending: true });
+      if (error || !data) throw error || new Error("Lecture planning impossible");
 
-  // 3. Check global cache key
-  try {
-    const globalRaw = localStorage.getItem(GLOBAL_MEAL_PLANS_CACHE_KEY);
-    if (globalRaw) {
-      const parsed = JSON.parse(globalRaw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        memoryMealPlansCache = parsed;
-        return parsed;
-      }
-    }
-
-    // 4. Scan any letscook_meal_plans_* keys in localStorage
-    const keys = Object.keys(localStorage).filter((k) =>
-      k.startsWith(MEAL_PLANS_KEY_PREFIX)
-    );
-    for (const k of keys) {
-      const raw = localStorage.getItem(k);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          memoryMealPlansCache = parsed;
-          return parsed;
-        }
-      }
-    }
-  } catch {}
-
-  return [];
-}
-
-export function saveStoredMealPlans(plans: MealPlan[], userId?: string): void {
-  if (typeof window === "undefined") return;
-  memoryMealPlansCache = plans;
-  try {
-    localStorage.setItem(GLOBAL_MEAL_PLANS_CACHE_KEY, JSON.stringify(plans));
-    if (userId) {
-      localStorage.setItem(
-        `${MEAL_PLANS_KEY_PREFIX}${userId}`,
-        JSON.stringify(plans)
+      const current = getStoredMealPlans(userId);
+      const merged = mergeWithPending(
+        userId,
+        "mealPlan",
+        data.map(rowToMealPlan),
+        current,
+        startedAt
       );
+      if (JSON.stringify(merged) !== JSON.stringify(current)) {
+        saveStoredMealPlans(merged, userId);
+      }
+      lastRefreshAt.set(userId, Date.now());
+      return getStoredMealPlans(userId);
+    } catch (err) {
+      console.warn("fetchMealPlansFromDb error, using local cache:", err);
+      return getStoredMealPlans(userId);
+    } finally {
+      inflightRefresh.delete(userId);
     }
-    window.dispatchEvent(new CustomEvent("letscook:meal-plans-updated"));
-  } catch (err) {
-    console.warn("saveStoredMealPlans error:", err);
-  }
+  })();
+
+  inflightRefresh.set(userId, promise);
+  return promise;
 }
 
-const MEAL_PLANS_COOLDOWN_MS = 30 * 1000;
-let lastMealPlansFetch = 0;
-
-export async function fetchMealPlansFromDb(userId: string, force = false): Promise<MealPlan[]> {
-  if (!userId) return [];
-  const allLocal = getStoredMealPlans(userId);
-  const now = Date.now();
-
-  if (!force && allLocal.length > 0 && now - lastMealPlansFetch < MEAL_PLANS_COOLDOWN_MS) {
-    return allLocal;
+export async function pushMealPlan(userId: string, planId: string): Promise<boolean> {
+  const plan = getStoredMealPlans(userId).find((p) => p.id === planId);
+  if (!plan) {
+    dequeue(userId, "mealPlan", planId);
+    return true;
   }
-  lastMealPlansFetch = now;
-
-  const supabase = createClient();
-
-  try {
-    const { data, error } = await supabase
+  return runRemote(userId, { kind: "mealPlan", op: "upsert", id: planId }, () =>
+    createClient()
       .from("meal_plans")
-      .select("*")
-      .eq("user_id", userId)
-      .order("date", { ascending: true });
+      .upsert(
+        [
+          {
+            id: plan.id,
+            user_id: userId,
+            recipe_id: plan.recipeId,
+            recipe_title: plan.recipeTitle,
+            recipe_image_url: plan.recipeImageUrl || null,
+            date: plan.date,
+            meal_type: plan.mealType || "dinner",
+            servings: plan.servings || 6,
+            notes: plan.notes || null,
+            created_at: plan.createdAt,
+            updated_at: plan.updatedAt || new Date().toISOString(),
+          },
+        ],
+        { onConflict: "id" }
+      )
+  );
+}
 
-    if (!error && data && Array.isArray(data)) {
-      const plans: MealPlan[] = data.map((row: any) => ({
-        id: row.id,
-        userId: row.user_id,
-        recipeId: row.recipe_id,
-        recipeTitle: row.recipe_title || "Recette",
-        recipeImageUrl: row.recipe_image_url,
-        date: row.date,
-        mealType: row.meal_type || "dinner",
-        servings: row.servings || 6,
-        notes: row.notes,
-        createdAt: row.created_at || new Date().toISOString(),
-        updatedAt: row.updated_at,
-      }));
-
-      saveStoredMealPlans(plans, userId);
-      return plans;
-    }
-  } catch (err) {
-    console.warn("fetchMealPlansFromDb error, using local storage:", err);
-  }
-
-  return allLocal;
+export async function pushMealPlanDelete(userId: string, planId: string): Promise<boolean> {
+  return runRemote(userId, { kind: "mealPlan", op: "delete", id: planId }, () =>
+    createClient().from("meal_plans").delete().eq("id", planId).eq("user_id", userId)
+  );
 }
 
 export async function addOrUpdateMealPlan(
@@ -129,6 +124,8 @@ export async function addOrUpdateMealPlan(
 ): Promise<MealPlan> {
   if (!userId) throw new Error("Authentification requise pour planifier un repas.");
 
+  const now = new Date().toISOString();
+  const existing = plan.id ? getStoredMealPlans(userId).find((p) => p.id === plan.id) : undefined;
   const newPlan: MealPlan = {
     id: plan.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     userId,
@@ -139,58 +136,31 @@ export async function addOrUpdateMealPlan(
     mealType: plan.mealType,
     servings: plan.servings || 6,
     notes: plan.notes,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
   };
 
-  // 1. Instant local sync
-  const current = getStoredMealPlans(userId);
-  const existingIdx = current.findIndex((p) => p.id === newPlan.id);
-  const updatedList =
-    existingIdx >= 0
-      ? current.map((p) => (p.id === newPlan.id ? newPlan : p))
-      : [...current, newPlan];
-  saveStoredMealPlans(updatedList, userId);
+  mealPlansStore.update(userId, (list) =>
+    list.some((p) => p.id === newPlan.id)
+      ? list.map((p) => (p.id === newPlan.id ? newPlan : p))
+      : [...list, newPlan]
+  );
 
-  // 2. Supabase DB Upsert
-  try {
-    const supabase = createClient();
-    const payload = {
-      id: newPlan.id,
-      user_id: userId,
-      recipe_id: newPlan.recipeId,
-      recipe_title: newPlan.recipeTitle,
-      recipe_image_url: newPlan.recipeImageUrl,
-      date: newPlan.date,
-      meal_type: newPlan.mealType,
-      servings: newPlan.servings,
-      notes: newPlan.notes,
-      updated_at: new Date().toISOString(),
-    };
-
-    await supabase.from("meal_plans").upsert([payload], { onConflict: "id" });
-  } catch (err) {
-    console.warn("addOrUpdateMealPlan Supabase error:", err);
-  }
-
+  await pushMealPlan(userId, newPlan.id);
   return newPlan;
 }
 
 export async function deleteMealPlanFromDb(planId: string, userId: string): Promise<void> {
   if (!userId) return;
+  mealPlansStore.update(userId, (list) => list.filter((p) => p.id !== planId));
+  await pushMealPlanDelete(userId, planId);
+}
 
-  const current = getStoredMealPlans(userId);
-  const filtered = current.filter((p) => p.id !== planId);
-  saveStoredMealPlans(filtered, userId);
-
-  try {
-    const supabase = createClient();
-    await supabase
-      .from("meal_plans")
-      .delete()
-      .eq("id", planId)
-      .eq("user_id", userId);
-  } catch (err) {
-    console.warn("deleteMealPlanFromDb error:", err);
-  }
+/** Meal plans of the given user, from the local cache, kept in sync with Supabase. */
+export function useMealPlans(userId: string | null | undefined): MealPlan[] | null {
+  const plans = useUserList(mealPlansStore, userId);
+  useEffect(() => {
+    if (userId) fetchMealPlansFromDb(userId);
+  }, [userId]);
+  return plans;
 }

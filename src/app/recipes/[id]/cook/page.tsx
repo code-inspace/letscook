@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -14,9 +14,8 @@ import {
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useAuth } from "@/providers/AuthProvider";
-import { getStoredUserSession } from "@/features/auth/actions";
-import { Recipe, RecipeStep } from "@/features/recipes/types";
-import { getStoredRecipes, getStoredRecipeById, fetchRecipesFromDb } from "@/features/recipes/actions";
+import { RecipeStep } from "@/features/recipes/types";
+import { useRecipes } from "@/features/recipes/actions";
 
 export default function CookingStepPage() {
   const params = useParams();
@@ -24,13 +23,11 @@ export default function CookingStepPage() {
   const { user } = useAuth();
   const recipeId = params?.id as string;
 
-  const [recipe, setRecipe] = useState<Recipe | null>(() => {
-    if (typeof window !== "undefined" && recipeId) {
-      const session = getStoredUserSession();
-      return getStoredRecipeById(recipeId, session?.id);
-    }
-    return null;
-  });
+  const recipes = useRecipes(user?.id);
+  const recipe = useMemo(
+    () => recipes?.find((r) => r.id === recipeId) || null,
+    [recipes, recipeId]
+  );
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
@@ -61,25 +58,6 @@ export default function CookingStepPage() {
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (!recipeId) return;
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-
-    const found = getStoredRecipeById(recipeId, currentUserId);
-    if (found) {
-      setRecipe(found);
-    }
-
-    if (currentUserId) {
-      fetchRecipesFromDb(currentUserId)
-        .then((list) => {
-          const dbFound = list.find((r) => r.id === recipeId);
-          if (dbFound) setRecipe(dbFound);
-        })
-        .catch(() => {});
-    }
-  }, [user?.id, recipeId]);
 
   const currentStep: RecipeStep | undefined = recipe?.steps?.[currentStepIndex];
   const totalSteps = recipe?.steps?.length || 0;
@@ -198,6 +176,23 @@ export default function CookingStepPage() {
       setCurrentStepIndex((prev) => prev - 1);
     }
   };
+
+  if (recipes !== null && (!recipe || !currentStep)) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-center text-white bg-black gap-4">
+        <p className="text-sm font-bold">
+          {recipe ? "Cette recette n'a pas encore d'étapes." : "Recette introuvable."}
+        </p>
+        <button
+          type="button"
+          onClick={() => router.push(recipe ? `/recipes/${recipe.id}` : "/")}
+          className="px-4 py-2 rounded-full bg-white/10 text-xs font-bold cursor-pointer"
+        >
+          ← Retour
+        </button>
+      </div>
+    );
+  }
 
   if (!recipe || !currentStep) {
     return (

@@ -5,8 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, Clock, ArrowRight, Star, ChefHat, ChevronLeft, X } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { Recipe } from "@/features/recipes/types";
-import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
+import { useRecipes } from "@/features/recipes/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 
 function SearchContent() {
@@ -15,16 +14,8 @@ function SearchContent() {
   const initialQuery = searchParams.get("q") || "";
 
   const { user } = useAuth();
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const recipes = useRecipes(user?.id) || [];
   const [query, setQuery] = useState<string>(initialQuery);
-
-  useEffect(() => {
-    if (user?.id) {
-      const cached = getStoredRecipes(user.id);
-      setRecipes(cached);
-      fetchRecipesFromDb(user.id).then((list) => setRecipes(list));
-    }
-  }, [user?.id]);
 
   useEffect(() => {
     const q = searchParams.get("q");

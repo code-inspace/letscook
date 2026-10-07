@@ -1,5 +1,5 @@
 // Service Worker for Let's Cook PWA
-const CACHE_NAME = "letscook-cache-v2";
+const CACHE_NAME = "letscook-cache-v3";
 const STATIC_ASSETS = [
   "/",
   "/groceries",
@@ -55,6 +55,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const isSameOrigin = url.origin === self.location.origin;
+  const isImage =
+    request.destination === "image" || /\.(png|jpg|jpeg|svg|webp|gif)$/i.test(url.pathname);
+
+  // Never intercept cross-origin data requests (Supabase REST/Auth, AI APIs…):
+  // serving them from cache returned stale recipes, plans and shopping lists.
+  if (!isSameOrigin && !isImage) {
+    return;
+  }
+
   // Skip Next.js hot reload / dev server websockets & API requests
   if (url.pathname.startsWith("/api/") || url.pathname.includes("/_next/webpack-hmr")) {
     return;
@@ -82,12 +92,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // 2. Images (recipe photos, ingredient icons): Cache-first, fallback to network
-  if (
-    request.destination === "image" ||
-    url.pathname.match(/\.(png|jpg|jpeg|svg|webp|gif)$/i) ||
-    url.hostname.includes("images.unsplash.com") ||
-    url.hostname.includes("supabase.co")
-  ) {
+  if (isImage) {
     event.respondWith(
       caches.match(request).then((cachedResponse) => {
         if (cachedResponse) {

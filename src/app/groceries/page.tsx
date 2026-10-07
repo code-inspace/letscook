@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -15,18 +15,15 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { getStoredUserSession } from "@/features/auth/actions";
 import { ShoppingItem, RecipeContribution } from "@/features/groceries/types";
 import { CATEGORY_ICONS } from "@/features/groceries/categorizer";
 import {
-  syncAndFetchShoppingList,
-  getStoredShoppingItems,
+  useShoppingItems,
   addCustomShoppingItem,
   toggleShoppingItemInDb,
   deleteShoppingItemFromList,
   clearCompletedShoppingItems,
   formatShoppingListForExport,
-  invalidateGroceriesSyncCooldown,
 } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
@@ -45,15 +42,9 @@ export default function GroceriesPage() {
   const router = useRouter();
   const { user } = useAuth();
 
-  const [items, setItems] = useState<ShoppingItem[]>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      return getStoredShoppingItems(session?.id);
-    }
-    return [];
-  });
-
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const storedItems = useShoppingItems(user?.id);
+  const items = useMemo(() => storedItems || [], [storedItems]);
+  const isLoading = storedItems === null;
 
   const [newItemName, setNewItemName] = useState<string>("");
   const [newItemAmount, setNewItemAmount] = useState<string>("");
@@ -69,68 +60,6 @@ export default function GroceriesPage() {
 
   // Expandable Accordion for purchased items
   const [isPurchasedExpanded, setIsPurchasedExpanded] = useState<boolean>(true);
-
-  const isSyncingGroceriesRef = React.useRef<boolean>(false);
-  const debounceGroceriesTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-
-  const loadGroceries = useCallback(async (force = false) => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    if (!currentUserId || isSyncingGroceriesRef.current) return;
-    isSyncingGroceriesRef.current = true;
-
-    try {
-      const fullList = await syncAndFetchShoppingList(currentUserId, force);
-      setItems((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(fullList)) {
-          return prev;
-        }
-        return fullList;
-      });
-    } catch (err) {
-      console.warn("loadGroceries sync error:", err);
-    } finally {
-      setIsLoading(false);
-      isSyncingGroceriesRef.current = false;
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    loadGroceries(false);
-
-    const handleDebouncedUpdate = () => {
-      if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
-      debounceGroceriesTimerRef.current = setTimeout(() => {
-        const currentUserId = user?.id || getStoredUserSession()?.id;
-        if (currentUserId) {
-          const cached = getStoredShoppingItems(currentUserId);
-          setItems((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(cached)) {
-              return prev;
-            }
-            return cached;
-          });
-        }
-      }, 150);
-    };
-
-    const handleMealPlansUpdate = () => {
-      invalidateGroceriesSyncCooldown();
-      if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
-      debounceGroceriesTimerRef.current = setTimeout(() => {
-        loadGroceries(true);
-      }, 150);
-    };
-
-    window.addEventListener("letscook:groceries-updated", handleDebouncedUpdate);
-    window.addEventListener("letscook:meal-plans-updated", handleMealPlansUpdate);
-    window.addEventListener("letscook:sync-completed", handleMealPlansUpdate);
-    return () => {
-      if (debounceGroceriesTimerRef.current) clearTimeout(debounceGroceriesTimerRef.current);
-      window.removeEventListener("letscook:groceries-updated", handleDebouncedUpdate);
-      window.removeEventListener("letscook:meal-plans-updated", handleMealPlansUpdate);
-      window.removeEventListener("letscook:sync-completed", handleMealPlansUpdate);
-    };
-  }, [loadGroceries, user?.id]);
 
   // Extract all distinct contributing recipes from shopping items
   const contributingRecipes = useMemo(() => {
@@ -189,28 +118,16 @@ export default function GroceriesPage() {
     });
   };
 
-  // Immediate toggle of checked status
-  const handleToggle = async (item: ShoppingItem) => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    if (!currentUserId) return;
-    const newChecked = !item.checked;
-
-    // Optimistic UI update
-    setItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, checked: newChecked } : i))
-    );
-
-    await toggleShoppingItemInDb(item, newChecked, currentUserId);
+  // Store updates are synchronous (instant UI), network writes run in the background
+  const handleToggle = (item: ShoppingItem) => {
+    if (!user?.id) return;
+    toggleShoppingItemInDb(item, !item.checked, user.id);
   };
 
-  const isAddingItemRef = React.useRef<boolean>(false);
-
-  const handleAddItem = async (e: React.FormEvent) => {
+  const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newItemName.trim();
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    if (!cleanName || !currentUserId || isAddingItemRef.current) return;
-    isAddingItemRef.current = true;
+    if (!cleanName || !user?.id) return;
 
     const amountNum = newItemAmount ? parseFloat(newItemAmount) : null;
     const unitStr = newItemUnit.trim() || null;
@@ -219,40 +136,19 @@ export default function GroceriesPage() {
     setNewItemAmount("");
     setNewItemUnit("");
 
-    try {
-      const added = await addCustomShoppingItem(
-        cleanName,
-        amountNum,
-        unitStr,
-        currentUserId
-      );
-
-      // Safe state update: avoid duplicate insertion if event listener already updated state
-      setItems((prev) => {
-        if (prev.some((i) => i.id === added.id)) {
-          return prev;
-        }
-        return [added, ...prev];
-      });
-    } catch (err) {
-      console.error("handleAddItem error:", err);
-    } finally {
-      isAddingItemRef.current = false;
-    }
+    addCustomShoppingItem(cleanName, amountNum, unitStr, user.id).catch((err) =>
+      console.error("handleAddItem error:", err)
+    );
   };
 
-  const handleDelete = async (item: ShoppingItem) => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    if (!currentUserId) return;
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    await deleteShoppingItemFromList(item, currentUserId);
+  const handleDelete = (item: ShoppingItem) => {
+    if (!user?.id) return;
+    deleteShoppingItemFromList(item, user.id);
   };
 
-  const handleClearCompleted = async () => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    if (!currentUserId) return;
-    setItems((prev) => prev.filter((i) => !i.checked));
-    await clearCompletedShoppingItems(currentUserId);
+  const handleClearCompleted = () => {
+    if (!user?.id) return;
+    clearCompletedShoppingItems(user.id);
   };
 
   // Filter items based on active recipe filter selection & re-calculate quantities dynamically

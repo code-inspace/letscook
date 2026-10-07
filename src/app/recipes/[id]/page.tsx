@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -31,12 +31,10 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { getStoredUserSession } from "@/features/auth/actions";
+import { toDateKey } from "@/lib/utils";
 import { Recipe, IngredientItem, RecipeStep } from "@/features/recipes/types";
 import {
-  getStoredRecipes,
-  getStoredRecipeById,
-  fetchRecipesFromDb,
+  useRecipes,
   saveRecipeToDb,
   deleteRecipeFromDb,
   toggleFavoriteInDb,
@@ -64,39 +62,23 @@ export default function RecipeDetailPage() {
   const { user } = useAuth();
   const recipeId = params?.id as string;
 
-  const [recipe, setRecipe] = useState<Recipe | null>(() => {
-    if (typeof window !== "undefined" && recipeId) {
-      const session = getStoredUserSession();
-      return getStoredRecipeById(recipeId, session?.id);
-    }
-    return null;
-  });
+  const recipes = useRecipes(user?.id);
+  const recipe = useMemo(
+    () => recipes?.find((r) => r.id === recipeId) || null,
+    [recipes, recipeId]
+  );
+  const isFavorite = Boolean(recipe?.isFavorite);
+  const isLoading = recipes === null;
 
+  // Chosen by the user only: background refreshes must never reset it
   const [servings, setServings] = useState<number>(6);
 
-  const [isFavorite, setIsFavorite] = useState<boolean>(() => {
-    if (typeof window !== "undefined" && recipeId) {
-      const session = getStoredUserSession();
-      const r = getStoredRecipeById(recipeId, session?.id);
-      return Boolean(r?.isFavorite);
-    }
-    return false;
-  });
-
   const [activeTab, setActiveTab] = useState<"ingredients" | "steps" | "nutrition">("ingredients");
-  const [isLoading, setIsLoading] = useState<boolean>(() => {
-    if (typeof window !== "undefined" && recipeId) {
-      const session = getStoredUserSession();
-      const r = getStoredRecipeById(recipeId, session?.id);
-      return !r;
-    }
-    return true;
-  });
 
   // Planning Modal State
   const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
   const [planDate, setPlanDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
+    toDateKey()
   );
   const [planMealType, setPlanMealType] = useState<"lunch" | "dinner" | "breakfast" | "snack">("dinner");
   const [planServings, setPlanServings] = useState<number>(6);
@@ -130,39 +112,6 @@ export default function RecipeDetailPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (!recipeId) return;
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-
-    const found = getStoredRecipeById(recipeId, currentUserId);
-    if (found) {
-      setRecipe(found);
-      setServings(6);
-      setPlanServings(6);
-      setIsFavorite(Boolean(found.isFavorite));
-      setIsLoading(false);
-    }
-
-    if (currentUserId) {
-      fetchRecipesFromDb(currentUserId)
-        .then((dbList) => {
-          const dbFound = dbList.find((r) => r.id === recipeId);
-          if (dbFound) {
-            setRecipe(dbFound);
-            setServings(6);
-            setPlanServings(6);
-            setIsFavorite(Boolean(dbFound.isFavorite));
-          }
-        })
-        .catch(() => {})
-        .finally(() => {
-          setIsLoading(false);
-        });
-    } else {
-      setIsLoading(false);
-    }
-  }, [user?.id, recipeId]);
-
   if (isLoading && !recipe) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-white">
@@ -173,6 +122,8 @@ export default function RecipeDetailPage() {
   }
 
   if (!recipe) {
+    // Just deleted: we are navigating away, don't flash the "not found" screen
+    if (isDeleting) return null;
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-white">
         <p className="text-sm font-bold text-[#181A20]">Recette introuvable</p>
@@ -188,15 +139,13 @@ export default function RecipeDetailPage() {
 
   const toggleFavorite = async () => {
     if (!user?.id) return;
-    const newFav = await toggleFavoriteInDb(recipe.id, user.id);
-    setIsFavorite(newFav);
-    setRecipe((prev) => (prev ? { ...prev, isFavorite: newFav } : null));
+    await toggleFavoriteInDb(recipe.id, user.id);
   };
 
   const handleQuickDateSelect = (daysOffset: number) => {
     const d = new Date();
     d.setDate(d.getDate() + daysOffset);
-    setPlanDate(d.toISOString().split("T")[0]);
+    setPlanDate(toDateKey(d));
   };
 
   const handleConfirmPlan = async (e: React.FormEvent) => {
@@ -217,8 +166,8 @@ export default function RecipeDetailPage() {
         user.id
       );
 
-      // Automatically update shopping list in DB
-      await syncAndFetchShoppingList(user.id);
+      // Shopping list is rebuilt locally right away, pushed to the DB in the background
+      syncAndFetchShoppingList(user.id, true);
 
       setIsPlanModalOpen(false);
       setPlanSuccessToast("Recette ajoutée à votre calendrier et liste de courses !");
@@ -273,7 +222,6 @@ export default function RecipeDetailPage() {
       };
 
       await saveRecipeToDb(updated, user.id);
-      setRecipe(updated);
       setIsEditModalOpen(false);
       setPlanSuccessToast("Recette modifiée et enregistrée en base de données !");
       setTimeout(() => setPlanSuccessToast(null), 3000);
@@ -290,9 +238,9 @@ export default function RecipeDetailPage() {
 
     setIsDeleting(true);
     try {
-      await deleteRecipeFromDb(recipe.id, user.id);
-      setIsDeleteModalOpen(false);
-      router.push("/");
+      const pending = deleteRecipeFromDb(recipe.id, user.id);
+      router.replace("/");
+      await pending;
     } catch (err) {
       console.error("handleConfirmDelete error:", err);
       setIsDeleting(false);
@@ -328,7 +276,6 @@ export default function RecipeDetailPage() {
           updatedAt: new Date().toISOString(),
         };
         await saveRecipeToDb(updated, user.id);
-        setRecipe(updated);
         setEditImageUrl(data.imageUrl);
         setPlanSuccessToast("Photo générée par IA et enregistrée avec succès !");
         setTimeout(() => setPlanSuccessToast(null), 3500);
@@ -960,7 +907,7 @@ export default function RecipeDetailPage() {
                     type="button"
                     onClick={() => handleQuickDateSelect(0)}
                     className={`py-2 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
-                      planDate === new Date().toISOString().split("T")[0]
+                      planDate === toDateKey()
                         ? "bg-[#5DB534] text-white border-[#5DB534]"
                         : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                     }`}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,12 +16,11 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { getStoredUserSession } from "@/features/auth/actions";
-import { Recipe } from "@/features/recipes/types";
-import { fetchRecipesFromDb, getStoredRecipes } from "@/features/recipes/actions";
-import { MealPlan } from "@/features/calendar/types";
-import { fetchMealPlansFromDb, getStoredMealPlans } from "@/features/calendar/actions";
+import { toDateKey } from "@/lib/utils";
+import { useRecipes } from "@/features/recipes/actions";
+import { useMealPlans } from "@/features/calendar/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 const DEFAULT_CATEGORIES = [
   { id: "all", name: "Toutes", slug: "" },
@@ -33,10 +32,10 @@ const DEFAULT_CATEGORIES = [
 ];
 
 function formatMealPlanDateBadge(dateStr: string, mealType: string): string {
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDateKey();
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split("T")[0];
+  const tomorrowStr = toDateKey(tomorrow);
 
   const mealIcon =
     mealType === "lunch" ? "☀️ Midi" : mealType === "dinner" ? "🌙 Soir" : "☕ Matin";
@@ -64,148 +63,33 @@ function formatMealPlanDateBadge(dateStr: string, mealType: string): string {
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user } = useAuth();
+  const storedRecipes = useRecipes(user?.id);
+  const storedPlans = useMealPlans(user?.id);
 
-  // Deterministic recipe sorting function (newest first, then stable ID sort)
-  const sortRecipesStable = useCallback((list: Recipe[]): Recipe[] => {
-    return [...list].sort((a, b) => {
-      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      if (timeB !== timeA) return timeB - timeA;
-      return a.id.localeCompare(b.id);
-    });
-  }, []);
-
-  // Synchronous immediate cache initialization (0ms initial render)
-  const [recipes, setRecipes] = useState<Recipe[]>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      const initial = getStoredRecipes(session?.id);
-      return [...initial].sort((a, b) => {
+  // Deterministic order (newest first, then id) so the list never reshuffles on refresh
+  const recipes = useMemo(
+    () =>
+      [...(storedRecipes || [])].sort((a, b) => {
         const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         if (timeB !== timeA) return timeB - timeA;
         return a.id.localeCompare(b.id);
-      });
-    }
-    return [];
-  });
-
-  const [mealPlans, setMealPlans] = useState<MealPlan[]>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      return getStoredMealPlans(session?.id);
-    }
-    return [];
-  });
+      }),
+    [storedRecipes]
+  );
 
   const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [isLoadingRecipes, setIsLoadingRecipes] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      const session = getStoredUserSession();
-      const initial = getStoredRecipes(session?.id);
-      return initial.length === 0;
-    }
-    return true;
-  });
-
-  const isFetchingRef = React.useRef<boolean>(false);
-  const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-
-  const loadData = useCallback(async (silent = true) => {
-    const currentUserId = user?.id || getStoredUserSession()?.id;
-    if (!currentUserId || isFetchingRef.current) return;
-    isFetchingRef.current = true;
-
-    // 1. Instant local cache load
-    const cachedRecipes = getStoredRecipes(currentUserId);
-    const cachedPlans = getStoredMealPlans(currentUserId);
-    if (cachedRecipes.length > 0) {
-      setRecipes((prev) => {
-        const sorted = sortRecipesStable(cachedRecipes);
-        if (
-          prev.length === sorted.length &&
-          prev.every(
-            (r, i) =>
-              r.id === sorted[i]?.id &&
-              r.title === sorted[i]?.title &&
-              r.imageUrl === sorted[i]?.imageUrl &&
-              r.isFavorite === sorted[i]?.isFavorite &&
-              r.updatedAt === sorted[i]?.updatedAt
-          )
-        ) {
-          return prev;
-        }
-        return sorted;
-      });
-      setMealPlans(cachedPlans);
-      setIsLoadingRecipes(false);
-    }
-
-    // 2. Fast background database fetch from Supabase
-    try {
-      const [dbRecipes, dbPlans] = await Promise.all([
-        fetchRecipesFromDb(currentUserId),
-        fetchMealPlansFromDb(currentUserId),
-      ]);
-      setRecipes((prev) => {
-        const sorted = sortRecipesStable(dbRecipes);
-        if (
-          prev.length === sorted.length &&
-          prev.every(
-            (r, i) =>
-              r.id === sorted[i]?.id &&
-              r.title === sorted[i]?.title &&
-              r.imageUrl === sorted[i]?.imageUrl &&
-              r.isFavorite === sorted[i]?.isFavorite &&
-              r.updatedAt === sorted[i]?.updatedAt
-          )
-        ) {
-          return prev;
-        }
-        return sorted;
-      });
-      setMealPlans(dbPlans);
-    } catch (err) {
-      console.warn("Erreur chargement données accueil:", err);
-    } finally {
-      setIsLoadingRecipes(false);
-      isFetchingRef.current = false;
-    }
-  }, [user?.id, sortRecipesStable]);
-
-  useEffect(() => {
-    if (user?.id) {
-      loadData();
-    } else if (!authLoading) {
-      setIsLoadingRecipes(false);
-    }
-
-    const handleDebouncedUpdate = () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = setTimeout(() => {
-        loadData(true);
-      }, 300);
-    };
-
-    window.addEventListener("letscook:recipes-updated", handleDebouncedUpdate);
-    window.addEventListener("letscook:meal-plans-updated", handleDebouncedUpdate);
-    window.addEventListener("letscook:sync-completed", handleDebouncedUpdate);
-    return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      window.removeEventListener("letscook:recipes-updated", handleDebouncedUpdate);
-      window.removeEventListener("letscook:meal-plans-updated", handleDebouncedUpdate);
-      window.removeEventListener("letscook:sync-completed", handleDebouncedUpdate);
-    };
-  }, [user?.id, authLoading, loadData]);
+  // `null` = local cache not readable yet (server render / hydration)
+  const isLoadingRecipes = storedRecipes === null;
 
   // Upcoming meal plans (today and future, sorted chronologically)
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDateKey();
   const upcomingPlans = useMemo(() => {
-    return mealPlans
+    return (storedPlans || [])
       .filter((p) => p.date >= todayStr)
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [mealPlans, todayStr]);
+  }, [storedPlans, todayStr]);
 
   // Filter recipes by category
   const filteredRecipes = useMemo(() => {
@@ -266,11 +150,17 @@ export default function HomePage() {
       {/* 5. Content Area: Database Recipes or Empty State */}
       <div className="px-5 mt-5">
         {isLoadingRecipes ? (
-          <div className="py-20 flex flex-col items-center justify-center text-center">
-            <div className="w-8 h-8 border-3 border-[#5DB534] border-t-transparent rounded-full animate-spin mb-3" />
-            <p className="text-xs text-[#8E929E]">
-              Chargement de votre carnet de recettes...
-            </p>
+          /* Same footprint as the loaded layout, so nothing jumps once the cache is read */
+          <div className="space-y-6" aria-busy="true" aria-label="Chargement des recettes">
+            <div className="mt-3 flex flex-col items-center">
+              <Skeleton shape="circle" className="w-[210px] h-[210px]" />
+              <Skeleton shape="rounded-2xl" className="w-full max-w-[280px] h-[76px] -mt-10" />
+            </div>
+            <div className="space-y-3">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} shape="rounded-2xl" className="w-full h-[76px]" />
+              ))}
+            </div>
           </div>
         ) : recipes.length === 0 ? (
           /* Empty State */
