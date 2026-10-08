@@ -21,14 +21,11 @@ import { useRecipes } from "@/features/recipes/actions";
 import { useMealPlans } from "@/features/calendar/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { RECIPE_CATEGORIES, normalizeCategory } from "@/features/recipes/types";
 
 const DEFAULT_CATEGORIES = [
   { id: "all", name: "Toutes", slug: "" },
-  { id: "main", name: "Plats", slug: "Main Dishes" },
-  { id: "soups", name: "Soupes", slug: "Soups & Stews" },
-  { id: "appetizers", name: "Entrées", slug: "Appetizers" },
-  { id: "pastas", name: "Pâtes", slug: "Pastas" },
-  { id: "desserts", name: "Desserts", slug: "Desserts" },
+  ...RECIPE_CATEGORIES.map((c) => ({ id: c.value, name: c.label, slug: c.value })),
 ];
 
 function formatMealPlanDateBadge(dateStr: string, mealType: string): string {
@@ -96,8 +93,7 @@ export default function HomePage() {
     return recipes.filter((recipe) => {
       return (
         !selectedCategory ||
-        (recipe.category &&
-          recipe.category.toLowerCase().includes(selectedCategory.toLowerCase()))
+        normalizeCategory(recipe.category) === selectedCategory
       );
     });
   }, [recipes, selectedCategory]);
@@ -227,12 +223,14 @@ export default function HomePage() {
                       {featuredRecipe.prepTimeMinutes} min
                     </span>
                     <span>{featuredRecipe.ingredients?.length || 0} ingr.</span>
-                    <div className="flex items-center gap-1">
-                      <Star className="w-3 h-3 text-[#F5A623] fill-[#F5A623]" />
-                      <span className="font-bold text-[#181A20]">
-                        {Number(featuredRecipe.rating || 5).toFixed(1)}
-                      </span>
-                    </div>
+                    {featuredRecipe.rating > 0 && (
+                      <div className="flex items-center gap-1">
+                        <Star className="w-3 h-3 text-[#F5A623] fill-[#F5A623]" />
+                        <span className="font-bold text-[#181A20]">
+                          {Number(featuredRecipe.rating).toFixed(1)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </section>

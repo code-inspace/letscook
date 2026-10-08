@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_SERVINGS } from "@/features/recipes/types";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -66,7 +67,7 @@ Réponds STRICTEMENT avec ce JSON valide en français :
 {
   "title": "Nom précis et appétissant du plat en français",
   "subtitle": "Courte description ou style culinaire en français",
-  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads",
+  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads" | "Breakfast" | "Sides",
   "prepTimeMinutes": 30,
   "difficulty": "Easy" | "Medium" | "Hard",
   "rating": 5.0,
@@ -126,7 +127,7 @@ Réponds STRICTEMENT avec ce JSON valide en français :
             const cleanedText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
             const parsedRecipe = JSON.parse(cleanedText);
             parsedRecipe.id = `recipe_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-            parsedRecipe.servingsBase = parsedRecipe.servingsBase || 6;
+            parsedRecipe.servingsBase = parsedRecipe.servingsBase || DEFAULT_SERVINGS;
 
             log(`Analyse vidéo réussie (${model}) : "${parsedRecipe.title}" (${parsedRecipe.ingredients?.length || 0} ingrédients, ${parsedRecipe.steps?.length || 0} étapes).`);
 

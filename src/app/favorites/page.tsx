@@ -83,11 +83,15 @@ export default function FavoritesPage() {
                       <Clock className="w-3 h-3 text-emerald-600" />
                       {recipe.prepTimeMinutes}m
                     </span>
-                    <span>•</span>
-                    <span className="flex items-center gap-0.5 text-[#181A20] font-bold">
-                      <Star className="w-3 h-3 text-[#F5A623] fill-[#F5A623]" />
-                      {Number(recipe.rating || 5).toFixed(1)}
-                    </span>
+                    {recipe.rating > 0 && (
+                      <>
+                        <span>•</span>
+                        <span className="flex items-center gap-0.5 text-[#181A20] font-bold">
+                          <Star className="w-3 h-3 text-[#F5A623] fill-[#F5A623]" />
+                          {Number(recipe.rating).toFixed(1)}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

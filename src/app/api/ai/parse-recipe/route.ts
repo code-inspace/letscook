@@ -82,7 +82,7 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
 {
   "title": "Nom exact du plat extrait par OCR",
   "subtitle": "Sous-titre ou description courte",
-  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts",
+  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads" | "Breakfast" | "Sides",
   "prepTimeMinutes": 35,
   "difficulty": "Easy" | "Medium" | "Hard",
   "rating": 5.0,

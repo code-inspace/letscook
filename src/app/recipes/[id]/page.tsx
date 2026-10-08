@@ -29,10 +29,19 @@ import {
   ExternalLink,
   Globe,
   Users,
+  Star,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { toDateKey } from "@/lib/utils";
-import { Recipe, IngredientItem, RecipeStep } from "@/features/recipes/types";
+import {
+  Recipe,
+  IngredientItem,
+  RecipeStep,
+  DEFAULT_SERVINGS,
+  RECIPE_CATEGORIES,
+  difficultyLabel,
+  categoryLabel,
+} from "@/features/recipes/types";
 import {
   useRecipes,
   saveRecipeToDb,
@@ -42,17 +51,6 @@ import {
 import { addOrUpdateMealPlan } from "@/features/calendar/actions";
 import { syncAndFetchShoppingList } from "@/features/groceries/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
-
-const CATEGORIES = [
-  "Main Dishes",
-  "Soups & Stews",
-  "Appetizers",
-  "Pastas",
-  "Desserts",
-  "Salads",
-  "Breakfast",
-  "Sides",
-];
 
 const DIFFICULTIES: Array<"Easy" | "Medium" | "Hard"> = ["Easy", "Medium", "Hard"];
 
@@ -71,7 +69,7 @@ export default function RecipeDetailPage() {
   const isLoading = recipes === null;
 
   // Chosen by the user only: background refreshes must never reset it
-  const [servings, setServings] = useState<number>(6);
+  const [servings, setServings] = useState<number>(DEFAULT_SERVINGS);
 
   const [activeTab, setActiveTab] = useState<"ingredients" | "steps" | "nutrition">("ingredients");
 
@@ -81,7 +79,7 @@ export default function RecipeDetailPage() {
     toDateKey()
   );
   const [planMealType, setPlanMealType] = useState<"lunch" | "dinner" | "breakfast" | "snack">("dinner");
-  const [planServings, setPlanServings] = useState<number>(6);
+  const [planServings, setPlanServings] = useState<number>(DEFAULT_SERVINGS);
   const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
   const [planSuccessToast, setPlanSuccessToast] = useState<string | null>(null);
 
@@ -92,7 +90,7 @@ export default function RecipeDetailPage() {
   const [editCategory, setEditCategory] = useState<string>("Main Dishes");
   const [editPrepTime, setEditPrepTime] = useState<number>(30);
   const [editDifficulty, setEditDifficulty] = useState<"Easy" | "Medium" | "Hard">("Easy");
-  const [editServingsBase, setEditServingsBase] = useState<number>(6);
+  const [editServingsBase, setEditServingsBase] = useState<number>(DEFAULT_SERVINGS);
   const [editImageUrl, setEditImageUrl] = useState<string>("");
   const [editSourceUrl, setEditSourceUrl] = useState<string>("");
   const [editVideoUrl, setEditVideoUrl] = useState<string>("");
@@ -142,6 +140,13 @@ export default function RecipeDetailPage() {
     await toggleFavoriteInDb(recipe.id, user.id);
   };
 
+  // Tapping the current rating again clears it
+  const handleRate = (n: number) => {
+    if (!user?.id) return;
+    const rating = Math.round(recipe.rating || 0) === n ? 0 : n;
+    saveRecipeToDb({ ...recipe, rating }, user.id);
+  };
+
   const handleQuickDateSelect = (daysOffset: number) => {
     const d = new Date();
     d.setDate(d.getDate() + daysOffset);
@@ -187,7 +192,7 @@ export default function RecipeDetailPage() {
     setEditCategory(recipe.category || "Main Dishes");
     setEditPrepTime(recipe.prepTimeMinutes || 30);
     setEditDifficulty(recipe.difficulty || "Easy");
-    setEditServingsBase(recipe.servingsBase || 2);
+    setEditServingsBase(recipe.servingsBase || DEFAULT_SERVINGS);
     setEditImageUrl(recipe.imageUrl || "");
     setEditSourceUrl(recipe.sourceUrl || "");
     setEditVideoUrl(recipe.videoUrl || "");
@@ -210,7 +215,7 @@ export default function RecipeDetailPage() {
         category: editCategory,
         prepTimeMinutes: Number(editPrepTime) || 30,
         difficulty: editDifficulty,
-        servingsBase: Number(editServingsBase) || 2,
+        servingsBase: Number(editServingsBase) || DEFAULT_SERVINGS,
         imageUrl: editImageUrl.trim() || recipe.imageUrl,
         sourceUrl: editSourceUrl.trim() || undefined,
         videoUrl: editVideoUrl.trim() || undefined,
@@ -585,7 +590,7 @@ export default function RecipeDetailPage() {
       {/* Recipe Info Title & Category */}
       <div className="px-6 mt-6 flex flex-col items-start">
         <span className="text-xs font-bold text-[#5DB534] uppercase tracking-wider">
-          {recipe.category || "Plat Principal"}
+          {categoryLabel(recipe.category)}
         </span>
 
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#181A20] tracking-tight mt-1 leading-snug">
@@ -641,16 +646,36 @@ export default function RecipeDetailPage() {
 
         <div className="bg-white p-3 rounded-2xl border border-slate-100 shadow-2xs flex flex-col items-center justify-center text-center">
           <span className="text-sm font-extrabold text-[#181A20]">
-            {recipe.difficulty || "Easy"}
+            {difficultyLabel(recipe.difficulty)}
           </span>
           <span className="text-[10px] font-semibold text-[#8E929E] mt-0.5">Difficulté</span>
         </div>
 
         <div className="bg-white p-3 rounded-2xl border border-slate-100 shadow-2xs flex flex-col items-center justify-center text-center">
-          <span className="text-sm font-extrabold text-[#181A20]">
-            {recipe.rating ? Number(recipe.rating).toFixed(1) : "5.0"}
+          <div className="flex items-center" role="radiogroup" aria-label="Ma note">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={Math.round(recipe.rating || 0) === n}
+                aria-label={`${n} étoile${n > 1 ? "s" : ""}`}
+                onClick={() => handleRate(n)}
+                className="p-px cursor-pointer active:scale-90 transition-transform"
+              >
+                <Star
+                  className={`w-3 h-3 ${
+                    n <= Math.round(recipe.rating || 0)
+                      ? "text-[#F5A623] fill-[#F5A623]"
+                      : "text-slate-300"
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] font-semibold text-[#8E929E] mt-0.5">
+            {recipe.rating > 0 ? "Ma note" : "Noter"}
           </span>
-          <span className="text-[10px] font-semibold text-[#8E929E] mt-0.5">Note</span>
         </div>
       </div>
 
@@ -1128,9 +1153,9 @@ export default function RecipeDetailPage() {
                         onChange={(e) => setEditCategory(e.target.value)}
                         className="w-full bg-slate-50 px-3 py-2.5 rounded-xl text-xs text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30 cursor-pointer"
                       >
-                        {CATEGORIES.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
+                        {RECIPE_CATEGORIES.map((cat) => (
+                          <option key={cat.value} value={cat.value}>
+                            {cat.label}
                           </option>
                         ))}
                       </select>
@@ -1147,7 +1172,7 @@ export default function RecipeDetailPage() {
                       >
                         {DIFFICULTIES.map((diff) => (
                           <option key={diff} value={diff}>
-                            {diff}
+                            {difficultyLabel(diff)}
                           </option>
                         ))}
                       </select>

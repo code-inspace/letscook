@@ -100,8 +100,8 @@ export default function ProfilePage() {
 
           <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center text-center">
             <ShieldCheck className="w-5 h-5 text-emerald-600 mb-1" />
-            <span className="text-xs font-bold text-emerald-700">AES-256 Cloud</span>
-            <span className="text-[11px] text-[#8E929E]">Chiffrement & Supabase</span>
+            <span className="text-xs font-bold text-emerald-700">Sauvegarde cloud</span>
+            <span className="text-[11px] text-[#8E929E]">Privée & synchronisée</span>
           </div>
         </div>
 

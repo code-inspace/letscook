@@ -220,7 +220,7 @@ export default function LoginPage() {
           Let's <span className="text-[#22C55E]">Cook</span>
         </h1>
         <p className="text-xs text-[#8E929E] mt-1.5 max-w-[260px] leading-relaxed">
-          Votre assistant culinaire IA avec chiffrement de bout en bout
+          Votre assistant culinaire IA, synchronisé sur tous vos appareils
         </p>
       </div>
 
@@ -238,7 +238,7 @@ export default function LoginPage() {
       <div className="text-center">
         <div className="inline-flex items-center gap-1.5 text-[11px] text-[#8E929E] bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-2xs">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Données et recettes chiffrées de bout en bout</span>
+          <span>Recettes privées, accessibles uniquement avec votre compte</span>
         </div>
       </div>
     </div>

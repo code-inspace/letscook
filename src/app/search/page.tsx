@@ -7,6 +7,7 @@ import { Search, Clock, ArrowRight, Star, ChefHat, ChevronLeft, X } from "lucide
 import { useAuth } from "@/providers/AuthProvider";
 import { useRecipes } from "@/features/recipes/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { categoryLabel } from "@/features/recipes/types";
 
 function SearchContent() {
   const router = useRouter();
@@ -29,7 +30,8 @@ function SearchContent() {
     const q = query.toLowerCase().trim();
     const titleMatch = r.title.toLowerCase().includes(q);
     const ingMatch = r.ingredients?.some((ing) => ing.name.toLowerCase().includes(q));
-    const catMatch = r.category?.toLowerCase().includes(q);
+    const catMatch =
+      r.category?.toLowerCase().includes(q) || categoryLabel(r.category).toLowerCase().includes(q);
     return titleMatch || ingMatch || catMatch;
   });
 
@@ -124,11 +126,15 @@ function SearchContent() {
                         <Clock className="w-3 h-3 text-emerald-600" />
                         {recipe.prepTimeMinutes}m
                       </span>
-                      <span>•</span>
-                      <span className="flex items-center gap-0.5 text-[#181A20] font-bold">
-                        <Star className="w-3 h-3 text-[#F5A623] fill-[#F5A623]" />
-                        {Number(recipe.rating || 5).toFixed(1)}
-                      </span>
+                      {recipe.rating > 0 && (
+                        <>
+                          <span>•</span>
+                          <span className="flex items-center gap-0.5 text-[#181A20] font-bold">
+                            <Star className="w-3 h-3 text-[#F5A623] fill-[#F5A623]" />
+                            {Number(recipe.rating).toFixed(1)}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/client";
 import { fetchMealPlansFromDb, getStoredMealPlans, mealPlansStore } from "@/features/calendar/actions";
 import { fetchRecipesFromDb, getStoredRecipes, recipesStore } from "@/features/recipes/actions";
 import { createUserListStore, useUserList } from "@/lib/userStore";
+import { DEFAULT_SERVINGS } from "@/features/recipes/types";
 import { toDateKey } from "@/lib/utils";
 import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
 
@@ -62,7 +63,7 @@ interface RemoteCheckState {
  * the network. Checked states are kept from the current list; when `remote`
  * states are provided, the most recently updated one wins.
  */
-function rebuildShoppingList(
+export function rebuildShoppingList(
   userId: string,
   remote?: Map<string, RemoteCheckState>
 ): ShoppingItem[] {
@@ -87,9 +88,15 @@ function rebuildShoppingList(
   for (const plan of upcomingPlans) {
     const recipe = recipeMap.get(plan.recipeId);
     if (!recipe || !Array.isArray(recipe.ingredients)) continue;
+    // Quantities follow the number of servings chosen for this meal
+    const factor = (plan.servings || DEFAULT_SERVINGS) / (recipe.servingsBase || DEFAULT_SERVINGS);
 
-    for (const ing of recipe.ingredients) {
-      if (!ing?.name) continue;
+    for (const rawIng of recipe.ingredients) {
+      if (!rawIng?.name) continue;
+      const ing =
+        typeof rawIng.amount === "number"
+          ? { ...rawIng, amount: Math.round(rawIng.amount * factor * 100) / 100 }
+          : rawIng;
       const normKey = normalizeIngredientKey(ing.name);
       if (!normKey) continue;
       const legacyKey = `${plan.id}_${ing.name.toLowerCase().trim()}`;
@@ -220,7 +227,11 @@ export function syncAndFetchShoppingList(userId: string, force = false): Promise
     const startedAt = Date.now();
     const supabase = createClient();
     try {
-      await Promise.all([fetchMealPlansFromDb(userId), fetchRecipesFromDb(userId)]);
+      await Promise.all([
+        fetchMealPlansFromDb(userId),
+        fetchRecipesFromDb(userId),
+        syncExclusions(userId),
+      ]);
 
       const { data: rows, error } = await supabase
         .from("shopping_items")
@@ -295,6 +306,38 @@ export function syncAndFetchShoppingList(userId: string, force = false): Promise
 
   inflightRefresh.set(userId, promise);
   return promise;
+}
+
+/**
+ * Union of local and remote exclusions (removed auto ingredients), so an item
+ * removed on one device stays removed everywhere. Exclusions are never deleted,
+ * which makes a plain union conflict-free. Best effort: the list works offline.
+ */
+async function syncExclusions(userId: string): Promise<void> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("shopping_exclusions")
+    .select("key")
+    .eq("user_id", userId);
+  if (error || !data) {
+    console.warn("shopping_exclusions read error:", error);
+    return;
+  }
+  const remote = new Set(data.map((r) => r.key as string));
+  const local = getStoredExcludedIngredients(userId);
+  const missingLocally = [...remote].filter((k) => !local.includes(k));
+  if (missingLocally.length > 0) saveStoredExcludedIngredients([...local, ...missingLocally], userId);
+
+  const missingRemotely = local.filter((k) => !remote.has(k));
+  if (missingRemotely.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("shopping_exclusions")
+      .upsert(
+        missingRemotely.map((key) => ({ user_id: userId, key })),
+        { onConflict: "user_id,key", ignoreDuplicates: true }
+      );
+    if (upsertError) console.warn("shopping_exclusions upsert error:", upsertError);
+  }
 }
 
 export async function pushShoppingItem(userId: string, itemId: string): Promise<boolean> {
@@ -387,7 +430,16 @@ function excludeItems(items: ShoppingItem[], userId: string) {
   if (keys.length === 0) return;
   const current = getStoredExcludedIngredients(userId);
   const next = Array.from(new Set([...current, ...keys]));
-  if (next.length > current.length) saveStoredExcludedIngredients(next, userId);
+  if (next.length === current.length) return;
+  saveStoredExcludedIngredients(next, userId);
+  // Pushed right away; if offline, the next sync uploads whatever is missing
+  createClient()
+    .from("shopping_exclusions")
+    .upsert(
+      keys.map((key) => ({ user_id: userId, key })),
+      { onConflict: "user_id,key", ignoreDuplicates: true }
+    )
+    .then(({ error }) => error && console.warn("shopping_exclusions upsert error:", error));
 }
 
 export async function deleteShoppingItemFromList(item: ShoppingItem, userId: string): Promise<void> {

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { MealPlan } from "./types";
+import { DEFAULT_SERVINGS } from "@/features/recipes/types";
 import { createClient } from "@/utils/supabase/client";
 import { createUserListStore, useUserList } from "@/lib/userStore";
 import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
@@ -28,7 +29,7 @@ function rowToMealPlan(row: any): MealPlan {
     recipeImageUrl: row.recipe_image_url || undefined,
     date: row.date,
     mealType: row.meal_type || "dinner",
-    servings: row.servings || 6,
+    servings: row.servings || DEFAULT_SERVINGS,
     notes: row.notes || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.updated_at || undefined,
@@ -101,7 +102,7 @@ export async function pushMealPlan(userId: string, planId: string): Promise<bool
             recipe_image_url: plan.recipeImageUrl || null,
             date: plan.date,
             meal_type: plan.mealType || "dinner",
-            servings: plan.servings || 6,
+            servings: plan.servings || DEFAULT_SERVINGS,
             notes: plan.notes || null,
             created_at: plan.createdAt,
             updated_at: plan.updatedAt || new Date().toISOString(),
@@ -134,7 +135,7 @@ export async function addOrUpdateMealPlan(
     recipeImageUrl: plan.recipeImageUrl,
     date: plan.date,
     mealType: plan.mealType,
-    servings: plan.servings || 6,
+    servings: plan.servings || DEFAULT_SERVINGS,
     notes: plan.notes,
     createdAt: existing?.createdAt || now,
     updatedAt: now,

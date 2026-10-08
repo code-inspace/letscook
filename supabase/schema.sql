@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS public.recipes (
   image_url TEXT,
   prep_time_minutes INTEGER DEFAULT 30,
   difficulty TEXT DEFAULT 'Easy',
-  rating NUMERIC(3,1) DEFAULT 5.0,
-  servings_base INTEGER DEFAULT 2,
+  rating NUMERIC(3,1) DEFAULT 0, -- note de l'utilisateur, 0 = non notée
+  servings_base INTEGER DEFAULT 6,
   spice_level TEXT,
   utensils JSONB DEFAULT '[]'::jsonb,
   nutrition JSONB,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.meal_plans (
   recipe_image_url TEXT,
   date TEXT NOT NULL, -- Format: YYYY-MM-DD
   meal_type TEXT DEFAULT 'dinner' NOT NULL, -- lunch, dinner, breakfast, snack
-  servings INTEGER DEFAULT 2,
+  servings INTEGER DEFAULT 6,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -76,14 +76,12 @@ CREATE TABLE IF NOT EXISTS public.ingredients (
   updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 5. Table de Jonction Recettes - Ingrédients
-CREATE TABLE IF NOT EXISTS public.recipe_ingredients (
-  recipe_id TEXT NOT NULL REFERENCES public.recipes(id) ON DELETE CASCADE,
-  ingredient_id TEXT NOT NULL REFERENCES public.ingredients(id) ON DELETE CASCADE,
-  quantity TEXT NOT NULL,
-  order_index INTEGER DEFAULT 0,
+-- 5. Ingrédients retirés de la liste de courses (synchronisés entre appareils)
+CREATE TABLE IF NOT EXISTS public.shopping_exclusions (
+  user_id UUID NOT NULL DEFAULT auth.uid(),
+  key TEXT NOT NULL, -- "<meal_plan_id>_<ingrédient normalisé>"
   created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-  PRIMARY KEY (recipe_id, ingredient_id)
+  PRIMARY KEY (user_id, key)
 );
 
 -- 6. Activer le Row Level Security (RLS) pour la sécurité des données
@@ -91,7 +89,7 @@ ALTER TABLE public.recipes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.meal_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shopping_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ingredients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.recipe_ingredients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shopping_exclusions ENABLE ROW LEVEL SECURITY;
 
 -- Politiques de sécurité (Chaque utilisateur ne peut accéder qu'à ses propres données)
 CREATE POLICY "Users can manage own recipes" ON public.recipes
@@ -106,6 +104,12 @@ CREATE POLICY "Users can manage own shopping items" ON public.shopping_items
 CREATE POLICY "Public ingredients read access" ON public.ingredients
   FOR SELECT USING (true);
 
-CREATE POLICY "Public recipe ingredients read access" ON public.recipe_ingredients
-  FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can add ingredients" ON public.ingredients
+  FOR INSERT TO authenticated WITH CHECK (true);
+
+CREATE POLICY "Authenticated users can update ingredients" ON public.ingredients
+  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "Users can manage own shopping exclusions" ON public.shopping_exclusions
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 

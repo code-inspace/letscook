@@ -1,6 +1,10 @@
 /**
- * Application-level Envelope Encryption module (AES-256-GCM)
- * Provides zero-plaintext encrypted storage for recipes and sensitive culinary data.
+ * Application-level encryption (AES-256-GCM) of recipe contents stored in Supabase.
+ *
+ * NOT end-to-end: the key comes from NEXT_PUBLIC_ENCRYPTION_KEY, which is shipped to
+ * every browser and shared by all users. It only keeps titles/ingredients/steps out of
+ * plaintext in the database; access control relies on Supabase RLS. Don't advertise it
+ * as end-to-end encryption in the UI.
  * Format: "enc:v1:<iv_base64>:<ciphertext_base64>:<tag_base64>"
  */
 

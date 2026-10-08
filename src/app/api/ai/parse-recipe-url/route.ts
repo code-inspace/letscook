@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_SERVINGS } from "@/features/recipes/types";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -258,7 +259,7 @@ Réponds STRICTEMENT avec ce JSON valide :
 {
   "title": "Nom de la recette en français",
   "subtitle": "Courte description alléchante en français",
-  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads",
+  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads" | "Breakfast" | "Sides",
   "imageUrl": "${socialThumbnail}",
   "prepTimeMinutes": 30,
   "difficulty": "Easy" | "Medium" | "Hard",
@@ -305,7 +306,7 @@ Réponds STRICTEMENT avec ce JSON valide :
               const parsed = JSON.parse(cleanedText);
               parsed.sourceUrl = url;
               if (!parsed.imageUrl && socialThumbnail) parsed.imageUrl = socialThumbnail;
-              parsed.servingsBase = parsed.servingsBase || 6;
+              parsed.servingsBase = parsed.servingsBase || DEFAULT_SERVINGS;
 
               log(`Succès : Recette "${parsed.title}" extraite de la vidéo avec ${parsed.ingredients?.length || 0} ingrédients.`);
               return NextResponse.json({
@@ -485,7 +486,7 @@ Réponds STRICTEMENT avec ce JSON valide :
         rating: recipeSchema.aggregateRating?.ratingValue
           ? parseFloat(recipeSchema.aggregateRating.ratingValue)
           : 4.8,
-        servingsBase: parseServings(recipeSchema.recipeYield) || 6,
+        servingsBase: parseServings(recipeSchema.recipeYield) || DEFAULT_SERVINGS,
         ingredients,
         steps,
         sourceUrl: url,
@@ -624,7 +625,7 @@ Réponds STRICTEMENT avec ce JSON valide en français :
 {
   "title": "Nom de la recette en français",
   "subtitle": "Courte description en français",
-  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads",
+  "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads" | "Breakfast" | "Sides",
   "imageUrl": "${ogImage}",
   "prepTimeMinutes": 30,
   "difficulty": "Easy" | "Medium" | "Hard",

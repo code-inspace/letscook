@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Recipe } from "./types";
+import { Recipe, DEFAULT_SERVINGS } from "./types";
 import { encryptText, decryptText, isEncrypted } from "@/lib/crypto/encryption";
 import { createClient } from "@/utils/supabase/client";
 import { categorizeIngredient } from "@/features/groceries/categorizer";
@@ -95,8 +95,8 @@ function rowToRecipe(row: any): Recipe {
     imageUrl: row.image_url || "",
     prepTimeMinutes: row.prep_time_minutes || 30,
     difficulty: row.difficulty || "Easy",
-    rating: Number(row.rating) || 5.0,
-    servingsBase: row.servings_base || 6,
+    rating: Number(row.rating) || 0,
+    servingsBase: row.servings_base || DEFAULT_SERVINGS,
     spiceLevel: row.spice_level ?? undefined,
     utensils: row.utensils || [],
     nutrition: row.nutrition ?? undefined,

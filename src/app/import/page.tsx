@@ -41,6 +41,7 @@ import {
 } from "@/features/ai/visionParser";
 import { saveRecipeToDb } from "@/features/recipes/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { DEFAULT_SERVINGS, categoryLabel } from "@/features/recipes/types";
 
 export default function AIImportPage() {
   const router = useRouter();
@@ -127,8 +128,8 @@ export default function AIImportPage() {
         imageUrl: raw.imageUrl || "",
         prepTimeMinutes: raw.prepTimeMinutes || 30,
         difficulty: raw.difficulty || "Easy",
-        rating: raw.rating || 4.8,
-        servingsBase: raw.servingsBase || 6,
+        rating: 0, // the user rates the recipe after cooking it
+        servingsBase: raw.servingsBase || DEFAULT_SERVINGS,
         ingredients: Array.isArray(raw.ingredients) ? raw.ingredients : [],
         steps: Array.isArray(raw.steps) ? raw.steps : [],
         sourceUrl: raw.sourceUrl || targetUrl,
@@ -228,8 +229,8 @@ export default function AIImportPage() {
         imageUrl: raw.imageUrl || "",
         prepTimeMinutes: raw.prepTimeMinutes || 30,
         difficulty: raw.difficulty || "Easy",
-        rating: raw.rating || 5.0,
-        servingsBase: raw.servingsBase || 6,
+        rating: 0, // the user rates the recipe after cooking it
+        servingsBase: raw.servingsBase || DEFAULT_SERVINGS,
         ingredients: Array.isArray(raw.ingredients) ? raw.ingredients : [],
         steps: Array.isArray(raw.steps) ? raw.steps : [],
         sourceUrl: raw.sourceUrl || (extractedUrlMatch ? extractedUrlMatch[0] : undefined),
@@ -388,7 +389,7 @@ export default function AIImportPage() {
           (status) => setGlobalProgressMessage(`Recette ${i + 1}/${updatedPairs.length} : ${status}`)
         );
 
-        await saveRecipeToDb(result.recipe, user.id);
+        await saveRecipeToDb({ ...result.recipe, rating: 0 }, user.id);
 
         pair.status = "success";
         pair.recipe = result.recipe;
@@ -453,7 +454,7 @@ export default function AIImportPage() {
 
         <div
           className="w-10 h-10 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded-full"
-          title="Chiffrement et Persistance Supabase"
+          title="Sauvegarde Supabase"
         >
           <ShieldCheck className="w-5 h-5" />
         </div>
@@ -596,7 +597,7 @@ export default function AIImportPage() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                   
                   <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-xs font-extrabold text-[#5DB534]">
-                    {parsedUrlRecipe.category}
+                    {categoryLabel(parsedUrlRecipe.category)}
                   </div>
 
                   <div className="absolute bottom-4 left-4 right-4 text-white">
@@ -616,9 +617,6 @@ export default function AIImportPage() {
                       <span className="flex items-center gap-1">
                         <ChefHat className="w-3.5 h-3.5 text-[#5DB534]" />
                         {parsedUrlRecipe.servingsBase} portions
-                      </span>
-                      <span className="flex items-center gap-1">
-                        ★ {parsedUrlRecipe.rating}/5
                       </span>
                     </div>
                   </div>
@@ -1141,7 +1139,7 @@ export default function AIImportPage() {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                   
                   <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-xs font-extrabold text-[#5DB534]">
-                    {parsedVideoRecipe.category}
+                    {categoryLabel(parsedVideoRecipe.category)}
                   </div>
 
                   <div className="absolute bottom-4 left-4 right-4 text-white">
@@ -1161,9 +1159,6 @@ export default function AIImportPage() {
                       <span className="flex items-center gap-1">
                         <ChefHat className="w-3.5 h-3.5 text-[#5DB534]" />
                         {parsedVideoRecipe.servingsBase} portions
-                      </span>
-                      <span className="flex items-center gap-1">
-                        ★ {parsedVideoRecipe.rating}/5
                       </span>
                     </div>
                   </div>
