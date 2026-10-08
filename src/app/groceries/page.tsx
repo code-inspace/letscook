@@ -26,6 +26,7 @@ import {
   formatShoppingListForExport,
 } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { useRecipes } from "@/features/recipes/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
 
 const CATEGORY_ORDER = [
@@ -45,6 +46,14 @@ export default function GroceriesPage() {
   const storedItems = useShoppingItems(user?.id);
   const items = useMemo(() => storedItems || [], [storedItems]);
   const isLoading = storedItems === null;
+  const recipes = useRecipes(user?.id);
+  // Shopping items don't carry base64 recipe images: resolve them from the recipe
+  const recipeImages = useMemo(
+    () => new Map((recipes || []).map((r) => [r.id, r.imageUrl])),
+    [recipes]
+  );
+  const imageFor = (recipeId?: string, url?: string) =>
+    url || (recipeId ? recipeImages.get(recipeId) : undefined);
 
   const [newItemName, setNewItemName] = useState<string>("");
   const [newItemAmount, setNewItemAmount] = useState<string>("");
@@ -71,7 +80,7 @@ export default function GroceriesPage() {
             map.set(src.recipeId, {
               id: src.recipeId,
               title: src.recipeTitle,
-              imageUrl: src.recipeImageUrl,
+              imageUrl: imageFor(src.recipeId, src.recipeImageUrl),
             });
           }
         });
@@ -79,12 +88,12 @@ export default function GroceriesPage() {
         map.set(item.recipeId, {
           id: item.recipeId,
           title: item.recipeTitle || "Recette",
-          imageUrl: item.recipeImageUrl,
+          imageUrl: imageFor(item.recipeId, item.recipeImageUrl),
         });
       }
     });
     return Array.from(map.values());
-  }, [items]);
+  }, [items, recipeImages]);
 
   const toggleRecipeFilter = (recipeId: string) => {
     setDeselectedRecipeIds((prev) => {
@@ -548,9 +557,9 @@ export default function GroceriesPage() {
                                       className="w-6 h-6 rounded-full overflow-hidden border-2 border-white shadow-2xs bg-slate-100 shrink-0"
                                       title={src.recipeTitle}
                                     >
-                                      {src.recipeImageUrl ? (
+                                      {imageFor(src.recipeId, src.recipeImageUrl) ? (
                                         <img
-                                          src={src.recipeImageUrl}
+                                          src={imageFor(src.recipeId, src.recipeImageUrl)}
                                           alt={src.recipeTitle}
                                           className="w-full h-full object-cover"
                                         />
@@ -678,9 +687,9 @@ export default function GroceriesPage() {
                                     className="w-5 h-5 rounded-full overflow-hidden border border-white shadow-2xs bg-slate-100 shrink-0"
                                     title={src.recipeTitle}
                                   >
-                                    {src.recipeImageUrl ? (
+                                    {imageFor(src.recipeId, src.recipeImageUrl) ? (
                                       <img
-                                        src={src.recipeImageUrl}
+                                        src={imageFor(src.recipeId, src.recipeImageUrl)}
                                         alt={src.recipeTitle}
                                         className="w-full h-full object-cover"
                                       />

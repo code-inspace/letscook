@@ -38,6 +38,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const userId = user?.id;
 
   useEffect(() => {
+    // Ask the browser not to evict the offline cache (recipes, plans, shopping list)
+    navigator.storage?.persist?.().catch(() => {});
+
     const supabase = createClient();
     let cancelled = false;
 

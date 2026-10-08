@@ -856,9 +856,9 @@ export default function CalendarPage() {
             {/* Recipe Photo & Title */}
             <div className="space-y-3">
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200">
-                {selectedPlanDetails.recipeImageUrl ? (
+                {selectedPlanDetails.recipeImageUrl || recipeMap.get(selectedPlanDetails.recipeId)?.imageUrl ? (
                   <img
-                    src={selectedPlanDetails.recipeImageUrl}
+                    src={selectedPlanDetails.recipeImageUrl || recipeMap.get(selectedPlanDetails.recipeId)?.imageUrl}
                     alt={selectedPlanDetails.recipeTitle}
                     className="w-full h-full object-cover"
                   />

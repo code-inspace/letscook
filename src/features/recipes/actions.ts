@@ -9,7 +9,8 @@ import { mealPlansStore } from "@/features/calendar/actions";
 
 export const recipesStore = createUserListStore<Recipe>(
   "letscook_recipes_",
-  "letscook:recipes-updated"
+  "letscook:recipes-updated",
+  "idb"
 );
 
 const decryptedTextCache = new Map<string, string>();
@@ -148,6 +149,7 @@ const sameInstant = (a?: string, b?: string) => {
 };
 
 const REFRESH_MIN_INTERVAL_MS = 15 * 1000;
+const FETCH_BATCH_SIZE = 10;
 const lastRefreshAt = new Map<string, number>();
 const inflightRefresh = new Map<string, Promise<Recipe[]>>();
 
@@ -170,6 +172,7 @@ export function fetchRecipesFromDb(userId: string, force = false): Promise<Recip
     const supabase = createClient();
     const startedAt = Date.now();
     try {
+      await recipesStore.load(userId);
       const { data: index, error: indexError } = await supabase
         .from("recipes")
         .select("id, updated_at")
@@ -184,16 +187,24 @@ export function fetchRecipesFromDb(userId: string, force = false): Promise<Recip
         })
         .map((row) => row.id as string);
 
+      // Small batches (rows embed base64 images), each cached as soon as it arrives:
+      // recipes show up progressively and survive the app being closed mid-sync.
       const fetched = new Map<string, Recipe>();
-      for (let i = 0; i < toFetch.length; i += 50) {
+      for (let i = 0; i < toFetch.length; i += FETCH_BATCH_SIZE) {
         const { data, error } = await supabase
           .from("recipes")
           .select("*")
           .eq("user_id", userId)
-          .in("id", toFetch.slice(i, i + 50));
+          .in("id", toFetch.slice(i, i + FETCH_BATCH_SIZE));
         if (error || !data) throw error || new Error("Lecture recettes impossible");
         const decrypted = await Promise.all(data.map((row) => decryptRecipe(rowToRecipe(row))));
         decrypted.forEach((r) => fetched.set(r.id, r));
+        if (toFetch.length > FETCH_BATCH_SIZE) {
+          await recipesStore.update(userId, (list) => {
+            const ids = new Set(decrypted.map((r) => r.id));
+            return [...list.filter((r) => !ids.has(r.id)), ...decrypted];
+          });
+        }
       }
 
       const remote = index
@@ -229,6 +240,7 @@ export function fetchRecipesFromDb(userId: string, force = false): Promise<Recip
 
 /** Pushes the local version of a recipe to Supabase (queued for retry on failure). */
 export async function pushRecipe(userId: string, recipeId: string): Promise<boolean> {
+  await recipesStore.load(userId);
   const recipe = getStoredRecipeById(recipeId, userId);
   if (!recipe) {
     dequeue(userId, "recipe", recipeId);
@@ -285,7 +297,7 @@ export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Re
   };
 
   // 1. Instant local write
-  recipesStore.update(userId, (list) =>
+  await recipesStore.update(userId, (list) =>
     list.some((r) => r.id === saved.id)
       ? list.map((r) => (r.id === saved.id ? saved : r))
       : [saved, ...list]
@@ -298,17 +310,18 @@ export async function saveRecipeToDb(recipe: Recipe, userId: string): Promise<Re
 
 export async function deleteRecipeFromDb(recipeId: string, userId: string): Promise<void> {
   if (!userId) return;
-  recipesStore.update(userId, (list) => list.filter((r) => r.id !== recipeId));
+  await recipesStore.update(userId, (list) => list.filter((r) => r.id !== recipeId));
   // Meal plans cascade-delete with the recipe in Supabase: mirror it locally
-  const plans = mealPlansStore.read(userId);
+  const plans = await mealPlansStore.load(userId);
   if (plans.some((p) => p.recipeId === recipeId)) {
-    mealPlansStore.write(userId, plans.filter((p) => p.recipeId !== recipeId));
+    await mealPlansStore.update(userId, (list) => list.filter((p) => p.recipeId !== recipeId));
   }
   await pushRecipeDelete(userId, recipeId);
 }
 
 export async function toggleFavoriteInDb(recipeId: string, userId: string): Promise<boolean> {
   if (!userId) return false;
+  await recipesStore.load(userId);
   const target = getStoredRecipeById(recipeId, userId);
   if (!target) return false;
 
@@ -317,7 +330,7 @@ export async function toggleFavoriteInDb(recipeId: string, userId: string): Prom
     isFavorite: !target.isFavorite,
     updatedAt: new Date().toISOString(),
   };
-  recipesStore.update(userId, (list) => list.map((r) => (r.id === recipeId ? updated : r)));
+  await recipesStore.update(userId, (list) => list.map((r) => (r.id === recipeId ? updated : r)));
   await pushRecipe(userId, recipeId);
   return Boolean(updated.isFavorite);
 }

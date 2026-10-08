@@ -7,7 +7,8 @@ import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
 
 export const mealPlansStore = createUserListStore<MealPlan>(
   "letscook_meal_plans_",
-  "letscook:meal-plans-updated"
+  "letscook:meal-plans-updated",
+  "idb"
 );
 
 export function getStoredMealPlans(userId?: string | null): MealPlan[] {
@@ -26,7 +27,11 @@ function rowToMealPlan(row: any): MealPlan {
     userId: row.user_id,
     recipeId: row.recipe_id,
     recipeTitle: row.recipe_title || "Recette",
-    recipeImageUrl: row.recipe_image_url || undefined,
+    // Older rows may hold a base64 copy of the recipe image: keep it on the recipe only
+    recipeImageUrl:
+      row.recipe_image_url && !row.recipe_image_url.startsWith("data:")
+        ? row.recipe_image_url
+        : undefined,
     date: row.date,
     mealType: row.meal_type || "dinner",
     servings: row.servings || DEFAULT_SERVINGS,
@@ -51,6 +56,7 @@ export function fetchMealPlansFromDb(userId: string, force = false): Promise<Mea
   const promise = (async () => {
     const startedAt = Date.now();
     try {
+      await mealPlansStore.load(userId);
       const { data, error } = await createClient()
         .from("meal_plans")
         .select("*")
@@ -84,6 +90,7 @@ export function fetchMealPlansFromDb(userId: string, force = false): Promise<Mea
 }
 
 export async function pushMealPlan(userId: string, planId: string): Promise<boolean> {
+  await mealPlansStore.load(userId);
   const plan = getStoredMealPlans(userId).find((p) => p.id === planId);
   if (!plan) {
     dequeue(userId, "mealPlan", planId);
@@ -126,13 +133,15 @@ export async function addOrUpdateMealPlan(
   if (!userId) throw new Error("Authentification requise pour planifier un repas.");
 
   const now = new Date().toISOString();
+  await mealPlansStore.load(userId);
   const existing = plan.id ? getStoredMealPlans(userId).find((p) => p.id === plan.id) : undefined;
   const newPlan: MealPlan = {
     id: plan.id || `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     userId,
     recipeId: plan.recipeId,
     recipeTitle: plan.recipeTitle,
-    recipeImageUrl: plan.recipeImageUrl,
+    // Base64 images stay on the recipe only (displays fall back to the recipe image)
+    recipeImageUrl: plan.recipeImageUrl?.startsWith("data:") ? undefined : plan.recipeImageUrl,
     date: plan.date,
     mealType: plan.mealType,
     servings: plan.servings || DEFAULT_SERVINGS,
@@ -141,7 +150,7 @@ export async function addOrUpdateMealPlan(
     updatedAt: now,
   };
 
-  mealPlansStore.update(userId, (list) =>
+  await mealPlansStore.update(userId, (list) =>
     list.some((p) => p.id === newPlan.id)
       ? list.map((p) => (p.id === newPlan.id ? newPlan : p))
       : [...list, newPlan]
@@ -153,7 +162,7 @@ export async function addOrUpdateMealPlan(
 
 export async function deleteMealPlanFromDb(planId: string, userId: string): Promise<void> {
   if (!userId) return;
-  mealPlansStore.update(userId, (list) => list.filter((p) => p.id !== planId));
+  await mealPlansStore.update(userId, (list) => list.filter((p) => p.id !== planId));
   await pushMealPlanDelete(userId, planId);
 }
 

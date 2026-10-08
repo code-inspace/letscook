@@ -76,6 +76,11 @@ export default function HomePage() {
     [storedRecipes]
   );
 
+  const recipeImages = useMemo(
+    () => new Map(recipes.map((r) => [r.id, r.imageUrl])),
+    [recipes]
+  );
+
   const [selectedCategory, setSelectedCategory] = useState<string>("");
   // `null` = local cache not readable yet (server render / hydration)
   const isLoadingRecipes = storedRecipes === null;
@@ -284,9 +289,9 @@ export default function HomePage() {
                     >
                       <div className="flex items-center gap-2.5">
                         <div className="w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-slate-100 shadow-2xs border border-white">
-                          {plan.recipeImageUrl ? (
+                          {plan.recipeImageUrl || recipeImages.get(plan.recipeId) ? (
                             <img
-                              src={plan.recipeImageUrl}
+                              src={plan.recipeImageUrl || recipeImages.get(plan.recipeId)}
                               alt={plan.recipeTitle}
                               className="w-full h-full object-cover"
                             />

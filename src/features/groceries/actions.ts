@@ -11,7 +11,8 @@ import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
 
 export const shoppingStore = createUserListStore<ShoppingItem>(
   "letscook_shopping_items_",
-  "letscook:groceries-updated"
+  "letscook:groceries-updated",
+  "idb"
 );
 const excludedStore = createUserListStore<string>("letscook_excluded_groceries_");
 
@@ -49,6 +50,10 @@ export function normalizeIngredientKey(name: string): string {
   return s.trim();
 }
 
+// Base64 images are copied into every shopping item otherwise (MBs per ingredient);
+// the groceries page falls back to the recipe's own image.
+const lightImage = (url?: string) => (url && !url.startsWith("data:") ? url : undefined);
+
 const time = (iso?: string) => (iso ? Date.parse(iso) || 0 : 0);
 
 interface RemoteCheckState {
@@ -67,6 +72,14 @@ export function rebuildShoppingList(
   userId: string,
   remote?: Map<string, RemoteCheckState>
 ): ShoppingItem[] {
+  // Inputs still being read from IndexedDB: rebuilding now would drop items
+  if (
+    !recipesStore.peek(userId) ||
+    !mealPlansStore.peek(userId) ||
+    !shoppingStore.peek(userId)
+  ) {
+    return shoppingStore.read(userId);
+  }
   const current = getStoredShoppingItems(userId);
   const currentById = new Map(current.map((i) => [i.id, i]));
   const excludedKeys = new Set(getStoredExcludedIngredients(userId));
@@ -105,7 +118,7 @@ export function rebuildShoppingList(
       const contribution: RecipeContribution = {
         recipeId: recipe.id,
         recipeTitle: recipe.title,
-        recipeImageUrl: recipe.imageUrl,
+        recipeImageUrl: lightImage(recipe.imageUrl),
         amount: ing.amount || null,
         unit: ing.unit || null,
         mealPlanId: plan.id,
@@ -146,7 +159,7 @@ export function rebuildShoppingList(
         isCustom: false,
         recipeId: recipe.id,
         recipeTitle: recipe.title,
-        recipeImageUrl: recipe.imageUrl,
+        recipeImageUrl: lightImage(recipe.imageUrl),
         recipeSources: [contribution],
         mealPlanId: plan.id,
         mealPlanDate: plan.date,
@@ -215,17 +228,24 @@ const inflightRefresh = new Map<string, Promise<ShoppingItem[]>>();
  */
 export function syncAndFetchShoppingList(userId: string, force = false): Promise<ShoppingItem[]> {
   if (!userId) return Promise.resolve([]);
-  const local = rebuildShoppingList(userId);
-
   const running = inflightRefresh.get(userId);
   if (running) return running;
-  if (!force && Date.now() - (lastRefreshAt.get(userId) || 0) < REFRESH_MIN_INTERVAL_MS) {
-    return Promise.resolve(local);
-  }
+  const throttled =
+    !force && Date.now() - (lastRefreshAt.get(userId) || 0) < REFRESH_MIN_INTERVAL_MS;
 
   const promise = (async () => {
     const startedAt = Date.now();
     const supabase = createClient();
+    await Promise.all([
+      recipesStore.load(userId),
+      mealPlansStore.load(userId),
+      shoppingStore.load(userId),
+    ]);
+    const local = rebuildShoppingList(userId);
+    if (throttled) {
+      inflightRefresh.delete(userId);
+      return local;
+    }
     try {
       await Promise.all([
         fetchMealPlansFromDb(userId),
@@ -341,6 +361,7 @@ async function syncExclusions(userId: string): Promise<void> {
 }
 
 export async function pushShoppingItem(userId: string, itemId: string): Promise<boolean> {
+  await shoppingStore.load(userId);
   const item = getStoredShoppingItems(userId).find((i) => i.id === itemId);
   if (!item) {
     dequeue(userId, "shopping", itemId);
@@ -381,7 +402,7 @@ export async function addCustomShoppingItem(
     updatedAt: now,
   };
 
-  shoppingStore.update(userId, (list) => [newItem, ...list]);
+  await shoppingStore.update(userId, (list) => [newItem, ...list]);
   await pushShoppingItem(userId, newItem.id);
 
   // Shared ingredient catalog (autocomplete): best effort
@@ -407,7 +428,7 @@ export async function toggleShoppingItemInDb(
   if (!userId) return;
   const itemId = typeof itemOrId === "string" ? itemOrId : itemOrId.id;
   const now = new Date().toISOString();
-  shoppingStore.update(userId, (list) =>
+  await shoppingStore.update(userId, (list) =>
     list.map((i) => (i.id === itemId ? { ...i, checked: newChecked, updatedAt: now } : i))
   );
   await pushShoppingItem(userId, itemId);
@@ -446,16 +467,16 @@ export async function deleteShoppingItemFromList(item: ShoppingItem, userId: str
   if (!userId) return;
   // Auto items are excluded so they don't respawn on the next rebuild
   excludeItems([item], userId);
-  shoppingStore.update(userId, (list) => list.filter((i) => i.id !== item.id));
+  await shoppingStore.update(userId, (list) => list.filter((i) => i.id !== item.id));
   await pushShoppingDelete(userId, item.id);
 }
 
 export async function clearCompletedShoppingItems(userId: string): Promise<void> {
   if (!userId) return;
-  const checked = getStoredShoppingItems(userId).filter((i) => i.checked);
+  const checked = (await shoppingStore.load(userId)).filter((i) => i.checked);
   if (checked.length === 0) return;
   excludeItems(checked, userId);
-  shoppingStore.update(userId, (list) => list.filter((i) => !i.checked));
+  await shoppingStore.update(userId, (list) => list.filter((i) => !i.checked));
   await Promise.all(checked.map((i) => pushShoppingDelete(userId, i.id)));
 }
 
