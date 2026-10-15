@@ -51,6 +51,7 @@ import {
 import { addOrUpdateMealPlan } from "@/features/calendar/actions";
 import { syncAndFetchShoppingList } from "@/features/groceries/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
+import { RecalibrateSheet } from "@/components/ingredients/RecalibrateSheet";
 
 const DIFFICULTIES: Array<"Easy" | "Medium" | "Hard"> = ["Easy", "Medium", "Hard"];
 
@@ -107,6 +108,7 @@ export default function RecipeDetailPage() {
   const [activeStepUploadIdx, setActiveStepUploadIdx] = useState<number | null>(null);
 
   // Delete Confirmation Modal State
+  const [isRecalibrateOpen, setIsRecalibrateOpen] = useState<boolean>(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
@@ -141,6 +143,13 @@ export default function RecipeDetailPage() {
   };
 
   // Tapping the current rating again clears it
+  const handleApplyRecalibration = async (ingredients: IngredientItem[]) => {
+    if (!user?.id) return;
+    await saveRecipeToDb({ ...recipe, ingredients }, user.id);
+    setPlanSuccessToast("Quantités recalibrées et enregistrées !");
+    setTimeout(() => setPlanSuccessToast(null), 3000);
+  };
+
   const handleRate = (n: number) => {
     if (!user?.id) return;
     const rating = Math.round(recipe.rating || 0) === n ? 0 : n;
@@ -760,6 +769,20 @@ export default function RecipeDetailPage() {
               +
             </button>
           </div>
+        </div>
+      )}
+
+      {/* AI recalibration of quantities / units */}
+      {activeTab === "ingredients" && recipe.ingredients.length > 0 && (
+        <div className="px-6 mt-3">
+          <button
+            type="button"
+            onClick={() => setIsRecalibrateOpen(true)}
+            className="w-full py-2.5 rounded-2xl bg-white border border-dashed border-emerald-300 text-[#5DB534] text-xs font-extrabold flex items-center justify-center gap-1.5 hover:bg-emerald-50/60 active:scale-[0.99] transition-all cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Recalibrer les quantités avec l&apos;IA</span>
+          </button>
         </div>
       )}
 
@@ -1573,6 +1596,14 @@ export default function RecipeDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {isRecalibrateOpen && (
+        <RecalibrateSheet
+          recipe={recipe}
+          onClose={() => setIsRecalibrateOpen(false)}
+          onApply={handleApplyRecalibration}
+        />
       )}
 
       {/* MODAL 3: Delete Confirmation Modal */}

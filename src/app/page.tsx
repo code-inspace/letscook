@@ -21,7 +21,10 @@ import { useRecipes } from "@/features/recipes/actions";
 import { useMealPlans } from "@/features/calendar/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { RecipeSlider, RecipeSlide } from "@/components/slider/RecipeSlider";
 import { RECIPE_CATEGORIES, normalizeCategory } from "@/features/recipes/types";
+
+const MAX_SLIDES = 10;
 
 const DEFAULT_CATEGORIES = [
   { id: "all", name: "Toutes", slug: "" },
@@ -103,8 +106,25 @@ export default function HomePage() {
     });
   }, [recipes, selectedCategory]);
 
-  const featuredRecipe = filteredRecipes[0] || null;
-  const remainingRecipes = filteredRecipes.slice(1);
+  const slides = useMemo(() => {
+    const byId = new Map(filteredRecipes.map((r) => [r.id, r]));
+    const result: RecipeSlide[] = [];
+    const seen = new Set<string>();
+    for (const plan of upcomingPlans) {
+      const recipe = byId.get(plan.recipeId);
+      if (!recipe || seen.has(recipe.id)) continue;
+      seen.add(recipe.id);
+      result.push({ recipe, badge: formatMealPlanDateBadge(plan.date, plan.mealType) });
+    }
+    for (const recipe of filteredRecipes) {
+      if (result.length >= MAX_SLIDES) break;
+      if (seen.has(recipe.id)) continue;
+      seen.add(recipe.id);
+      result.push({ recipe });
+    }
+    return result.slice(0, MAX_SLIDES);
+  }, [filteredRecipes, upcomingPlans]);
+  const remainingRecipes = filteredRecipes;
 
   return (
     <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] pt-6 pb-28 bg-white relative">
@@ -195,51 +215,8 @@ export default function HomePage() {
         ) : (
           /* Real Recipes from Database */
           <div className="space-y-6">
-            {/* Featured Hero Dish Card */}
-            {featuredRecipe && (
-              <section className="relative mt-3 flex flex-col items-center">
-                {/* Round Cutout Dish Plate */}
-                <div className="relative w-[210px] h-[210px] rounded-full overflow-hidden shrink-0 shadow-[0_16px_36px_rgba(0,0,0,0.14)] z-10 bg-slate-100 p-1 border border-white">
-                  <img
-                    src={featuredRecipe.imageUrl}
-                    alt={featuredRecipe.title}
-                    className="w-full h-full object-cover rounded-full"
-                  />
-                </div>
-
-                {/* Overlapping Glass Card */}
-                <div className="relative z-20 -mt-10 w-full max-w-[280px] bg-white/90 backdrop-blur-md rounded-2xl p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] border border-slate-100 flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-sm font-extrabold text-[#181A20] truncate flex-1">
-                      {featuredRecipe.title}
-                    </h2>
-                    <Link
-                      href={`/recipes/${featuredRecipe.id}`}
-                      className="w-8 h-8 rounded-full bg-[#5DB534] hover:bg-[#4FA12A] flex items-center justify-center text-white transition-all active:scale-95 shrink-0"
-                      aria-label={`Voir ${featuredRecipe.title}`}
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-[#8E929E]">
-                    <span className="flex items-center gap-1 font-semibold text-[#181A20]">
-                      <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                      {featuredRecipe.prepTimeMinutes} min
-                    </span>
-                    <span>{featuredRecipe.ingredients?.length || 0} ingr.</span>
-                    {featuredRecipe.rating > 0 && (
-                      <div className="flex items-center gap-1">
-                        <Star className="w-3 h-3 text-[#F5A623] fill-[#F5A623]" />
-                        <span className="font-bold text-[#181A20]">
-                          {Number(featuredRecipe.rating).toFixed(1)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-            )}
+            {/* Hero slider: planned recipes first, then the newest ones */}
+            <RecipeSlider slides={slides} />
 
             {/* 6. Mes Prochaines Recettes (Upcoming Planned Meals) */}
             <div className="pt-2 space-y-3">

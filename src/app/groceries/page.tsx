@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -13,6 +13,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  ListPlus,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { ShoppingItem, RecipeContribution } from "@/features/groceries/types";
@@ -28,6 +29,8 @@ import {
 import { BottomNav } from "@/components/layout/BottomNav";
 import { useRecipes } from "@/features/recipes/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
+import { RemindersImportSheet } from "@/components/ingredients/RemindersImportSheet";
+import { ParsedReminder, remindersShortcutUrl } from "@/features/groceries/remindersImport";
 
 const CATEGORY_ORDER = [
   "Fruits & Légumes",
@@ -153,6 +156,36 @@ export default function GroceriesPage() {
   const handleDelete = (item: ShoppingItem) => {
     if (!user?.id) return;
     deleteShoppingItemFromList(item, user.id);
+  };
+
+  // Import from iOS Reminders (via a Shortcut that copies the list to the clipboard)
+  const [isRemindersOpen, setIsRemindersOpen] = useState(false);
+  const [returningFromShortcut, setReturningFromShortcut] = useState(false);
+  const awaitingShortcutRef = React.useRef(false);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && awaitingShortcutRef.current) {
+        awaitingShortcutRef.current = false;
+        setReturningFromShortcut(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  const handleLaunchRemindersShortcut = () => {
+    awaitingShortcutRef.current = true;
+    window.location.href = remindersShortcutUrl();
+  };
+
+  const handleImportReminders = async (toAdd: ParsedReminder[]) => {
+    if (!user?.id) return;
+    for (const item of toAdd) {
+      await addCustomShoppingItem(item.name, item.amount, item.unit, user.id);
+    }
+    setExportNotice(`${toAdd.length} article(s) importé(s) depuis Rappels`);
+    setTimeout(() => setExportNotice(""), 3000);
   };
 
   const handleClearCompleted = () => {
@@ -293,6 +326,18 @@ export default function GroceriesPage() {
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setReturningFromShortcut(false);
+              setIsRemindersOpen(true);
+            }}
+            className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-slate-700 shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+            title="Importer depuis Rappels (liste Courses)"
+            aria-label="Importer depuis Rappels"
+          >
+            <ListPlus className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={handleExportToAppleReminders}
@@ -730,6 +775,16 @@ export default function GroceriesPage() {
           </div>
         )}
       </div>
+
+      {isRemindersOpen && (
+        <RemindersImportSheet
+          existing={items}
+          returningFromShortcut={returningFromShortcut}
+          onLaunchShortcut={handleLaunchRemindersShortcut}
+          onClose={() => setIsRemindersOpen(false)}
+          onImport={handleImportReminders}
+        />
+      )}
 
       <BottomNav />
     </div>

@@ -32,6 +32,8 @@ import {
 import { syncAndFetchShoppingList } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { DEFAULT_SERVINGS } from "@/features/recipes/types";
+import { useMealPlanDrag } from "@/features/calendar/useMealPlanDrag";
+import { toDateKey } from "@/lib/utils";
 import { categoryLabel } from "@/features/recipes/types";
 
 const MONTH_NAMES = [
@@ -103,6 +105,11 @@ export default function CalendarPage() {
   const [selectedMealType, setSelectedMealType] = useState<MealType>("dinner");
   const [selectedServings, setSelectedServings] = useState<number>(DEFAULT_SERVINGS);
   const [selectedPlanDetails, setSelectedPlanDetails] = useState<MealPlan | null>(null);
+  // Editable copy of the plan shown in the details popup
+  const [editPlanDate, setEditPlanDate] = useState<string>("");
+  const [editPlanMealType, setEditPlanMealType] = useState<MealType>("dinner");
+  const [editPlanServings, setEditPlanServings] = useState<number>(DEFAULT_SERVINGS);
+  const [moveToast, setMoveToast] = useState<string | null>(null);
   const [recipeSearch, setRecipeSearch] = useState<string>("");
 
   // Infinite Month Range state for Grid View
@@ -247,6 +254,56 @@ export default function CalendarPage() {
     syncAndFetchShoppingList(currentUserId, true);
   };
 
+  const openPlanDetails = (plan: MealPlan, imageUrl?: string) => {
+    setSelectedPlanDetails({ ...plan, recipeImageUrl: imageUrl });
+    setEditPlanDate(plan.date);
+    setEditPlanMealType(plan.mealType);
+    setEditPlanServings(plan.servings || DEFAULT_SERVINGS);
+  };
+
+  // Rescheduling keeps the plan id (same row, same shopping-list contributions)
+  const updatePlan = async (planId: string, changes: Partial<Pick<MealPlan, "date" | "mealType" | "servings">>) => {
+    const currentUserId = user?.id;
+    const plan = mealPlans.find((p) => p.id === planId);
+    if (!currentUserId || !plan) return;
+    await addOrUpdateMealPlan(
+      {
+        id: plan.id,
+        recipeId: plan.recipeId,
+        recipeTitle: plan.recipeTitle,
+        recipeImageUrl: plan.recipeImageUrl,
+        date: changes.date ?? plan.date,
+        mealType: changes.mealType ?? plan.mealType,
+        servings: changes.servings ?? plan.servings,
+        notes: plan.notes,
+      },
+      currentUserId
+    );
+    syncAndFetchShoppingList(currentUserId, true);
+  };
+
+  const formatDayLabel = (dateKey: string) => {
+    const [y, m, d] = dateKey.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+  };
+
+  const handleSavePlanDetails = () => {
+    if (!selectedPlanDetails || !editPlanDate) return;
+    const planId = selectedPlanDetails.id;
+    setSelectedPlanDetails(null);
+    updatePlan(planId, { date: editPlanDate, mealType: editPlanMealType, servings: editPlanServings });
+  };
+
+  const { drag, bindDraggable, consumeDragClick } = useMealPlanDrag((plan, date) => {
+    updatePlan(plan.id, { date });
+    setMoveToast(`« ${plan.recipeTitle} » déplacé au ${formatDayLabel(date)}`);
+    setTimeout(() => setMoveToast(null), 2500);
+  });
+
   const handleDeleteMealPlan = async (planId: string) => {
     const currentUserId = user?.id;
     if (!currentUserId) return;
@@ -365,12 +422,7 @@ export default function CalendarPage() {
                           return (
                             <div
                               key={plan.id}
-                              onClick={() =>
-                                setSelectedPlanDetails({
-                                  ...plan,
-                                  recipeImageUrl: imageUrl,
-                                })
-                              }
+                              onClick={() => openPlanDetails(plan, imageUrl)}
                               className="group relative rounded-3xl overflow-hidden bg-white border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-[0.99] flex flex-col sm:flex-row"
                             >
                               {/* Recipe Banner Photo */}
@@ -468,6 +520,9 @@ export default function CalendarPage() {
           </div>
 
           <div ref={containerRef} className="flex-1 px-4 pt-4 space-y-8 max-w-xl w-full mx-auto">
+            <p className="text-center text-[11px] text-[#8E929E] -mb-4">
+              Maintenez un repas puis faites-le glisser pour changer sa date
+            </p>
             {/* Load more past months */}
             <div className="text-center pt-2">
               <button
@@ -521,9 +576,12 @@ export default function CalendarPage() {
                         <div
                           key={dateKey}
                           ref={isToday ? todayRef : null}
+                          data-date-key={dateKey}
                           onClick={() => handleDayClick(dateKey)}
                           className={`min-h-[92px] rounded-2xl p-1.5 flex flex-col justify-between transition-all cursor-pointer border ${
-                            isToday
+                            drag && drag.overDate === dateKey
+                              ? "bg-emerald-100 border-[#5DB534] ring-2 ring-[#5DB534]/40 scale-[1.03]"
+                              : isToday
                               ? "bg-emerald-50/60 border-[#5DB534]/50 ring-2 ring-[#5DB534]/20 shadow-xs"
                               : "bg-white hover:border-slate-300 border-slate-100 shadow-2xs"
                           }`}
@@ -550,14 +608,15 @@ export default function CalendarPage() {
                               return (
                                 <div
                                   key={plan.id}
+                                  {...bindDraggable(plan)}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setSelectedPlanDetails({
-                                      ...plan,
-                                      recipeImageUrl: imageUrl,
-                                    });
+                                    if (consumeDragClick()) return;
+                                    openPlanDetails(plan, imageUrl);
                                   }}
-                                  className={`p-1 rounded-xl text-[9px] font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all border ${
+                                  className={`p-1 rounded-xl ${
+                                    drag?.plan.id === plan.id ? "opacity-30" : ""
+                                  } text-[9px] font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all border ${
                                     isLunch
                                       ? "bg-amber-50/90 text-amber-950 border-amber-200/80 hover:bg-amber-100"
                                       : isDinner
@@ -571,6 +630,7 @@ export default function CalendarPage() {
                                       <img
                                         src={imageUrl}
                                         alt={plan.recipeTitle}
+                                        draggable={false}
                                         className="w-full h-full object-cover"
                                       />
                                     ) : (
@@ -642,6 +702,27 @@ export default function CalendarPage() {
           )}
         </button>
       </div>
+
+      {/* Drag ghost following the finger */}
+      {drag && (
+        <div
+          className="fixed z-[60] pointer-events-none -translate-x-1/2 -translate-y-[130%] px-3 py-1.5 rounded-xl bg-[#181A20] text-white text-[11px] font-bold shadow-xl max-w-[200px] truncate"
+          style={{ left: drag.x, top: drag.y }}
+        >
+          {drag.plan.recipeTitle}
+          {drag.overDate && drag.overDate !== drag.plan.date && (
+            <span className="block text-[10px] font-semibold text-emerald-300">
+              → {formatDayLabel(drag.overDate)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {moveToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-2xl bg-[#181A20] text-white text-xs font-bold shadow-xl animate-in fade-in max-w-[90vw] text-center">
+          {moveToast}
+        </div>
+      )}
 
       {/* Plan a Meal Modal */}
       {isModalOpen && (
@@ -839,8 +920,8 @@ export default function CalendarPage() {
                     ? "🌙 Soir"
                     : "☕ Matin"}
                 </span>
-                <span className="text-xs font-semibold text-slate-500">
-                  {selectedPlanDetails.date}
+                <span className="text-xs font-semibold text-slate-500 capitalize">
+                  {formatDayLabel(selectedPlanDetails.date)}
                 </span>
               </div>
 
@@ -873,10 +954,106 @@ export default function CalendarPage() {
                 <h4 className="text-base font-extrabold text-[#181A20] leading-snug">
                   {selectedPlanDetails.recipeTitle}
                 </h4>
-                <p className="text-xs text-[#8E929E] mt-0.5">
-                  Planifié pour {selectedPlanDetails.servings || DEFAULT_SERVINGS} personne{(selectedPlanDetails.servings || DEFAULT_SERVINGS) > 1 ? "s" : ""}
-                </p>
               </div>
+            </div>
+
+            {/* Reschedule: date, meal, servings */}
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="edit-plan-date" className="text-xs font-bold text-slate-600">
+                  Date
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label="Jour précédent"
+                    onClick={() => {
+                      const [y, m, d] = editPlanDate.split("-").map(Number);
+                      setEditPlanDate(toDateKey(new Date(y, m - 1, d - 1)));
+                    }}
+                    className="w-7 h-7 rounded-full bg-white border border-slate-200 text-slate-600 font-extrabold cursor-pointer active:scale-95"
+                  >
+                    ‹
+                  </button>
+                  <input
+                    id="edit-plan-date"
+                    type="date"
+                    value={editPlanDate}
+                    onChange={(e) => e.target.value && setEditPlanDate(e.target.value)}
+                    className="bg-white px-2 py-1.5 rounded-xl text-xs font-bold border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Jour suivant"
+                    onClick={() => {
+                      const [y, m, d] = editPlanDate.split("-").map(Number);
+                      setEditPlanDate(toDateKey(new Date(y, m - 1, d + 1)));
+                    }}
+                    className="w-7 h-7 rounded-full bg-white border border-slate-200 text-slate-600 font-extrabold cursor-pointer active:scale-95"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-1.5">
+                {(
+                  [
+                    ["breakfast", "☕ Matin"],
+                    ["lunch", "☀️ Midi"],
+                    ["dinner", "🌙 Soir"],
+                  ] as Array<[MealType, string]>
+                ).map(([type, label]) => (
+                  <button
+                    key={type}
+                    type="button"
+                    aria-pressed={editPlanMealType === type}
+                    onClick={() => setEditPlanMealType(type)}
+                    className={`flex-1 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                      editPlanMealType === type
+                        ? "bg-white text-[#181A20] shadow-xs border border-slate-200"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-600">Personnes</span>
+                <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-full border border-slate-200">
+                  <button
+                    type="button"
+                    aria-label="Diminuer les portions"
+                    onClick={() => setEditPlanServings((n) => Math.max(1, n - 1))}
+                    className="w-6 h-6 rounded-full bg-slate-50 text-slate-600 font-extrabold cursor-pointer"
+                  >
+                    −
+                  </button>
+                  <span className="text-xs font-extrabold min-w-[40px] text-center">{editPlanServings}</span>
+                  <button
+                    type="button"
+                    aria-label="Augmenter les portions"
+                    onClick={() => setEditPlanServings((n) => n + 1)}
+                    className="w-6 h-6 rounded-full bg-slate-50 text-slate-600 font-extrabold cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {(editPlanDate !== selectedPlanDetails.date ||
+                editPlanMealType !== selectedPlanDetails.mealType ||
+                editPlanServings !== (selectedPlanDetails.servings || DEFAULT_SERVINGS)) && (
+                <button
+                  type="button"
+                  onClick={handleSavePlanDetails}
+                  className="w-full py-2.5 rounded-xl bg-[#181A20] text-white text-xs font-extrabold cursor-pointer active:scale-95 transition-all"
+                >
+                  Enregistrer les modifications
+                </button>
+              )}
             </div>
 
             {/* Actions */}
