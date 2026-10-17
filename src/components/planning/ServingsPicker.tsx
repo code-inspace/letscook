@@ -1,9 +1,8 @@
 "use client";
 
 import { Users } from "lucide-react";
-
-/** Quick choice offered next to the recipe's own number of servings. */
-export const QUICK_SERVINGS = 9;
+import { useAuth } from "@/providers/AuthProvider";
+import { useReferenceServings } from "@/features/settings/referenceServings";
 
 interface ServingsPickerProps {
   value: number;
@@ -12,10 +11,12 @@ interface ServingsPickerProps {
   recipeServings: number;
 }
 
-/** Number of people for a planned meal: stepper + quick picks (9 / recipe default). */
+/** Number of people for a planned meal: stepper + quick picks (reference servings / recipe default). */
 export function ServingsPicker({ value, onChange, recipeServings }: ServingsPickerProps) {
+  const { user } = useAuth();
+  const referenceServings = useReferenceServings(user?.id);
   const quickPicks = [
-    { servings: QUICK_SERVINGS, label: `${QUICK_SERVINGS} pers.` },
+    { servings: referenceServings, label: `${referenceServings} pers.` },
     { servings: recipeServings, label: `Recette (${recipeServings} pers.)` },
   ].filter((p, i, all) => all.findIndex((q) => q.servings === p.servings) === i);
 

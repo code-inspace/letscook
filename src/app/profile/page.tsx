@@ -11,10 +11,17 @@ import {
   Sparkles,
   ChevronLeft,
   User,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { signOutUser } from "@/features/auth/actions";
 import { useRecipes } from "@/features/recipes/actions";
+import {
+  MAX_REFERENCE_SERVINGS,
+  MIN_REFERENCE_SERVINGS,
+  setReferenceServings,
+  useReferenceServings,
+} from "@/features/settings/referenceServings";
 import { BottomNav } from "@/components/layout/BottomNav";
 
 function getInitials(name?: string, email?: string): string {
@@ -39,6 +46,7 @@ function getInitials(name?: string, email?: string): string {
 export default function ProfilePage() {
   const router = useRouter();
   const { user } = useAuth();
+  const referenceServings = useReferenceServings(user?.id);
   const recipesCount = useRecipes(user?.id)?.length ?? 0;
 
   const name = user?.name || user?.email?.split("@")[0] || "Chef Cuisinier";
@@ -102,6 +110,46 @@ export default function ProfilePage() {
             <ShieldCheck className="w-5 h-5 text-emerald-600 mb-1" />
             <span className="text-xs font-bold text-emerald-700">Sauvegarde cloud</span>
             <span className="text-[11px] text-[#8E929E]">Privée & synchronisée</span>
+          </div>
+        </div>
+
+        {/* Settings */}
+        <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#5DB534] flex items-center justify-center shrink-0">
+                <Users className="w-4.5 h-4.5" />
+              </div>
+              <div className="flex flex-col text-left min-w-0">
+                <span className="text-xs font-extrabold text-[#181A20]">Portions de référence</span>
+                <span className="text-[10px] text-[#8E929E]">
+                  Proposé en raccourci sur les recettes et le planning
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-full border border-slate-200 shrink-0">
+              <button
+                type="button"
+                disabled={!user || referenceServings <= MIN_REFERENCE_SERVINGS}
+                onClick={() => user && setReferenceServings(user.id, referenceServings - 1)}
+                aria-label="Une portion de moins"
+                className="w-7 h-7 rounded-full bg-white shadow-2xs font-extrabold text-slate-700 disabled:opacity-40 active:scale-95 cursor-pointer"
+              >
+                −
+              </button>
+              <span className="min-w-6 text-center text-sm font-extrabold text-[#181A20]" aria-live="polite">
+                {referenceServings}
+              </span>
+              <button
+                type="button"
+                disabled={!user || referenceServings >= MAX_REFERENCE_SERVINGS}
+                onClick={() => user && setReferenceServings(user.id, referenceServings + 1)}
+                aria-label="Une portion de plus"
+                className="w-7 h-7 rounded-full bg-white shadow-2xs font-extrabold text-slate-700 disabled:opacity-40 active:scale-95 cursor-pointer"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
 

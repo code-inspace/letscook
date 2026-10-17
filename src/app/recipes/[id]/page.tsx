@@ -51,6 +51,7 @@ import {
 import { addOrUpdateMealPlan } from "@/features/calendar/actions";
 import { syncAndFetchShoppingList } from "@/features/groceries/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
+import { useReferenceServings } from "@/features/settings/referenceServings";
 import { ServingsPicker } from "@/components/planning/ServingsPicker";
 import { RecalibrateSheet } from "@/components/ingredients/RecalibrateSheet";
 
@@ -60,6 +61,7 @@ export default function RecipeDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const referenceServings = useReferenceServings(user?.id);
   const recipeId = params?.id as string;
 
   const recipes = useRecipes(user?.id);
@@ -828,18 +830,29 @@ export default function RecipeDetailPage() {
       {/* Servings Selector (Below Tab Bar) */}
       {activeTab === "ingredients" && (
         <div className="px-6 mt-3.5 flex items-center justify-between gap-2">
-          {/* Quick Access Toggle: 1 pers <-> 6 pers */}
-          <button
-            type="button"
-            onClick={() => setServings(servings === 6 ? 1 : 6)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#5DB534] text-xs font-extrabold border border-emerald-200/60 shadow-2xs active:scale-95 transition-all cursor-pointer"
-            title={servings === 6 ? "Passer à 1 personne" : "Passer à 6 personnes"}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>
-              {servings === 6 ? "Passer à 1 pers." : "Passer à 6 pers."}
-            </span>
-          </button>
+          {/* Quick Access Toggle: reference servings (profile setting) <-> recipe quantities */}
+          {(() => {
+            const recipeServings = recipe.servingsBase || DEFAULT_SERVINGS;
+            if (recipeServings === referenceServings) return <span />;
+            const onReference = servings === referenceServings;
+            return (
+              <button
+                type="button"
+                onClick={() => setServings(onReference ? recipeServings : referenceServings)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#5DB534] text-xs font-extrabold border border-emerald-200/60 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                title={
+                  onReference
+                    ? `Garder les quantités de la recette (${recipeServings} pers.)`
+                    : `Passer à ${referenceServings} personnes`
+                }
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>
+                  {onReference ? `Recette (${recipeServings} pers.)` : `Passer à ${referenceServings} pers.`}
+                </span>
+              </button>
+            );
+          })()}
 
           {/* Stepper +/- */}
           <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-2xs">

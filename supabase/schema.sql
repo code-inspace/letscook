@@ -113,3 +113,15 @@ CREATE POLICY "Authenticated users can update ingredients" ON public.ingredients
 CREATE POLICY "Users can manage own shopping exclusions" ON public.shopping_exclusions
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+
+-- 7. Réglages par utilisateur (nombre de portions de référence, 9 par défaut)
+CREATE TABLE IF NOT EXISTS public.user_settings (
+  user_id UUID PRIMARY KEY DEFAULT auth.uid(),
+  reference_servings INTEGER NOT NULL DEFAULT 9 CHECK (reference_servings BETWEEN 1 AND 99),
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.user_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own settings" ON public.user_settings
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
