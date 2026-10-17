@@ -83,6 +83,11 @@ export default function RecipeDetailPage() {
   const [planServings, setPlanServings] = useState<number>(DEFAULT_SERVINGS);
   const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
   const [planSuccessToast, setPlanSuccessToast] = useState<string | null>(null);
+  // "ven. 17" while the plan button shows its "Planifié" confirmation
+  const [planConfirmation, setPlanConfirmation] = useState<string | null>(null);
+  const planConfirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const planButtonRef = useRef<HTMLButtonElement | null>(null);
+  const heroImageRef = useRef<HTMLImageElement | null>(null);
 
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
@@ -162,13 +167,76 @@ export default function RecipeDetailPage() {
     setPlanDate(toDateKey(d));
   };
 
+  /**
+   * Non-blocking confirmation: a thumbnail of the dish flies into the "Planifier"
+   * button, which then turns into "✓ Planifié · <day>" for a few seconds.
+   * Nothing overlays the page, so navigation stays available.
+   */
+  const playPlannedAnimation = (dateKey: string) => {
+    const [y, m, d] = dateKey.split("-").map(Number);
+    const label = new Date(y, m - 1, d).toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+    });
+    const showConfirmation = () => {
+      setPlanConfirmation(label);
+      if (planConfirmationTimer.current) clearTimeout(planConfirmationTimer.current);
+      planConfirmationTimer.current = setTimeout(() => setPlanConfirmation(null), 2800);
+    };
+
+    const from = heroImageRef.current?.getBoundingClientRect();
+    const to = planButtonRef.current?.getBoundingClientRect();
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (!from || !to || !recipe?.imageUrl || reduceMotion || typeof document.body.animate !== "function") {
+      showConfirmation();
+      return;
+    }
+
+    const size = 56;
+    const ghost = document.createElement("img");
+    ghost.src = recipe.imageUrl;
+    ghost.alt = "";
+    Object.assign(ghost.style, {
+      position: "fixed",
+      left: `${from.left + from.width / 2 - size / 2}px`,
+      top: `${from.top + from.height / 2 - size / 2}px`,
+      width: `${size}px`,
+      height: `${size}px`,
+      borderRadius: "9999px",
+      objectFit: "cover",
+      zIndex: "60",
+      pointerEvents: "none",
+      boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
+      border: "2px solid white",
+    });
+    document.body.appendChild(ghost);
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+    const flight = ghost.animate(
+      [
+        { transform: "translate(0, 0) scale(1.6)", opacity: 0 },
+        { transform: "translate(0, 0) scale(1.2)", opacity: 1, offset: 0.2 },
+        { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 60}px) scale(0.8)`, opacity: 1, offset: 0.6 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.3)`, opacity: 0.2 },
+      ],
+      { duration: 750, easing: "cubic-bezier(0.45, 0, 0.25, 1)" }
+    );
+    const done = () => {
+      ghost.remove();
+      showConfirmation();
+    };
+    flight.onfinish = done;
+    flight.oncancel = done;
+  };
+
   const handleConfirmPlan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user?.id || !recipe) return;
 
     setIsSubmittingPlan(true);
     try {
-      await addOrUpdateMealPlan(
+      // The meal is stored locally right away; the network write runs in the background
+      const saving = addOrUpdateMealPlan(
         {
           recipeId: recipe.id,
           recipeTitle: recipe.title,
@@ -179,13 +247,12 @@ export default function RecipeDetailPage() {
         },
         user.id
       );
+      setIsPlanModalOpen(false);
+      playPlannedAnimation(planDate);
+      await saving;
 
       // Shopping list is rebuilt locally right away, pushed to the DB in the background
       syncAndFetchShoppingList(user.id, true);
-
-      setIsPlanModalOpen(false);
-      setPlanSuccessToast("Recette ajoutée à votre calendrier et liste de courses !");
-      setTimeout(() => setPlanSuccessToast(null), 4000);
     } catch (err) {
       console.error("handleConfirmPlan error:", err);
     } finally {
@@ -458,30 +525,16 @@ export default function RecipeDetailPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FB] pb-32">
       {/* Toast Notification */}
+      {/* Bottom status message: click-through, never covers the header */}
       {planSuccessToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-md bg-zinc-900 text-white p-4 rounded-2xl shadow-xl border border-zinc-700/80 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-[#5DB534] flex items-center justify-center shrink-0">
-              <Check className="w-4 h-4 text-white" strokeWidth={3} />
-            </div>
-            <span className="text-xs font-bold leading-tight">
-              {planSuccessToast}
-            </span>
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-md bg-zinc-900/95 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 pointer-events-none animate-in fade-in slide-in-from-bottom-4"
+        >
+          <div className="w-7 h-7 rounded-full bg-[#5DB534] flex items-center justify-center shrink-0">
+            <Check className="w-4 h-4 text-white" strokeWidth={3} />
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={() => router.push("/groceries")}
-              className="text-[11px] font-bold text-emerald-400 hover:underline px-1.5 py-1"
-            >
-              Courses
-            </button>
-            <button
-              onClick={() => router.push("/calendar")}
-              className="text-[11px] font-bold text-slate-300 hover:underline px-1.5 py-1"
-            >
-              Planning
-            </button>
-          </div>
+          <span className="text-xs font-bold leading-tight">{planSuccessToast}</span>
         </div>
       )}
 
@@ -519,13 +572,28 @@ export default function RecipeDetailPage() {
 
           {/* Plan button */}
           <button
+            ref={planButtonRef}
             type="button"
             onClick={() => setIsPlanModalOpen(true)}
-            className="px-3.5 py-2 rounded-full bg-white/90 backdrop-blur-md flex items-center gap-1.5 text-xs font-bold text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
+            className={`relative px-3.5 py-2 rounded-full backdrop-blur-md flex items-center gap-1.5 text-xs font-bold shadow-sm border active:scale-95 transition-colors duration-300 cursor-pointer ${
+              planConfirmation
+                ? "plan-pop bg-[#5DB534] text-white border-[#5DB534]"
+                : "bg-white/90 text-[#181A20] border-slate-100"
+            }`}
             title="Planifier au calendrier"
           >
-            <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
-            <span>Planifier</span>
+            {planConfirmation && (
+              <span
+                aria-hidden="true"
+                className="plan-ring absolute inset-0 rounded-full border-2 border-[#5DB534] pointer-events-none"
+              />
+            )}
+            {planConfirmation ? (
+              <Check className="w-4 h-4" strokeWidth={3} />
+            ) : (
+              <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
+            )}
+            <span aria-live="polite">{planConfirmation ? `Planifié · ${planConfirmation}` : "Planifier"}</span>
           </button>
 
           {/* Favorite button */}
@@ -552,6 +620,7 @@ export default function RecipeDetailPage() {
             <div className="w-full h-full rounded-full overflow-hidden relative shadow-inner bg-slate-100 flex items-center justify-center">
               {recipe.imageUrl ? (
                 <img
+                  ref={heroImageRef}
                   src={recipe.imageUrl}
                   alt={recipe.title}
                   onError={(e) => {
