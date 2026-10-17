@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 45;
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -40,6 +40,9 @@ export async function POST(req: NextRequest) {
       process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
     const attemptedErrors: string[] = [];
+    // Image models have no free tier (quota "limit: 0"): tell the user what to do
+    let quotaErrors = 0;
+    const deadline = Date.now() + 55_000;
 
     // 2. Essai avec les modèles d'image Gemini
     if (geminiApiKey) {
@@ -51,6 +54,8 @@ export async function POST(req: NextRequest) {
       ];
 
       for (const model of imageModels) {
+        const remaining = deadline - Date.now();
+        if (remaining < 5_000) break;
         try {
           const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
           const res = await fetch(endpoint, {
@@ -59,7 +64,8 @@ export async function POST(req: NextRequest) {
             body: JSON.stringify({
               contents: [{ parts: [{ text: `Generate an image of: ${promptText}` }] }],
             }),
-            signal: AbortSignal.timeout(12000),
+            // Image generation commonly takes 10-25 s
+            signal: AbortSignal.timeout(Math.min(30_000, remaining)),
           });
 
           if (res.ok) {
@@ -77,6 +83,7 @@ export async function POST(req: NextRequest) {
             }
           } else {
             const errJson = await res.json().catch(() => ({}));
+            if (res.status === 429) quotaErrors++;
             attemptedErrors.push(`${model} (HTTP ${res.status}): ${errJson?.error?.message || res.statusText}`);
           }
         } catch (mErr: any) {
@@ -89,13 +96,16 @@ export async function POST(req: NextRequest) {
 
     // 3. Aucune IA n'a pu générer l'image : renvoyer une erreur explicite SANS substitut stock
     console.warn("AI Image Generation failed:", attemptedErrors);
+    const allQuota = quotaErrors > 0 && quotaErrors === attemptedErrors.length;
     return NextResponse.json(
       {
-        error:
-          "La génération d'image par IA n'a pas pu aboutir (quota de génération d'image Google Gemini dépassé ou indisponible). Vous pouvez uploader une photo depuis votre appareil ou réessayer ultérieurement.",
+        error: allQuota
+          ? "La génération de photos n'est pas disponible avec l'offre gratuite de Google Gemini (quota d'images à 0). Activez la facturation du projet Google AI Studio pour l'utiliser. En attendant, vous pouvez ajouter une photo depuis votre appareil."
+          : "La génération de photo par IA a échoué. Réessayez dans un instant ou ajoutez une photo depuis votre appareil.",
+        code: allQuota ? "IMAGE_QUOTA" : "IMAGE_FAILED",
         details: attemptedErrors,
       },
-      { status: 503 }
+      { status: allQuota ? 429 : 503 }
     );
   } catch (err: any) {
     console.error("generate-recipe-image error:", err);
