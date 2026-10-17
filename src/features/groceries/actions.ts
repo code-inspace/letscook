@@ -493,10 +493,25 @@ export function useShoppingItems(userId: string | null | undefined): ShoppingIte
     const unsubPlans = mealPlansStore.subscribe(rebuild);
     const unsubRecipes = recipesStore.subscribe(rebuild);
     const unsubExcluded = excludedStore.subscribe(rebuild);
+
+    // Meals from a past day leave the list: recompute right after midnight too,
+    // in case the page stays open across the day change
+    let midnightTimer: ReturnType<typeof setTimeout>;
+    const scheduleMidnightRebuild = () => {
+      const next = new Date();
+      next.setHours(24, 0, 5, 0);
+      midnightTimer = setTimeout(() => {
+        rebuild();
+        scheduleMidnightRebuild();
+      }, next.getTime() - Date.now());
+    };
+    scheduleMidnightRebuild();
+
     return () => {
       unsubPlans();
       unsubRecipes();
       unsubExcluded();
+      clearTimeout(midnightTimer);
     };
   }, [userId]);
   return items;
