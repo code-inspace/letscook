@@ -67,8 +67,10 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
+// /api/ai/* is public and receives large uploads (photos, videos, PDFs): keeping it out
+// of the proxy avoids the 10 MB request body buffering limit applied to proxied routes.
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|api/ai/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

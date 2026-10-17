@@ -31,6 +31,7 @@ import {
   BookOpen,
   Video,
   Film,
+  FileText,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { Recipe } from "@/features/recipes/types";
@@ -41,6 +42,7 @@ import {
 } from "@/features/ai/visionParser";
 import { saveRecipeToDb } from "@/features/recipes/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { PdfImportPanel } from "@/components/import/PdfImportPanel";
 import { DEFAULT_SERVINGS, categoryLabel } from "@/features/recipes/types";
 
 export default function AIImportPage() {
@@ -51,7 +53,7 @@ export default function AIImportPage() {
   const videoInputRef = useRef<HTMLInputElement | null>(null);
 
   // Tab State: 'url' | 'photos' | 'video'
-  const [activeTab, setActiveTab] = useState<"url" | "photos" | "video">("url");
+  const [activeTab, setActiveTab] = useState<"url" | "photos" | "video" | "pdf">("url");
 
   // URL Import State
   const [urlInput, setUrlInput] = useState<string>("");
@@ -499,7 +501,21 @@ export default function AIImportPage() {
             <Film className="w-4 h-4 text-[#5DB534]" />
             <span>Vidéos</span>
           </button>
+          <button
+            onClick={() => setActiveTab("pdf")}
+            className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "pdf"
+                ? "bg-white text-[#181A20] shadow-xs"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <FileText className="w-4 h-4 text-[#5DB534]" />
+            <span>PDF</span>
+          </button>
         </div>
+
+        {/* TAB 4: PDF IMPORT */}
+        {activeTab === "pdf" && <PdfImportPanel userId={user?.id} onLog={addLog} />}
 
         {/* TAB 1: URL IMPORT */}
         {activeTab === "url" && (
