@@ -7,7 +7,7 @@ import { Recipe } from "@/features/recipes/types";
 
 export interface RecipeSlide {
   recipe: Recipe;
-  /** e.g. "Demain • 🌙 Soir" when the recipe is planned */
+  /** e.g. "Demain" when the recipe is planned */
   badge?: string;
 }
 

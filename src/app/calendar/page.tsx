@@ -14,16 +14,13 @@ import {
   X,
   Utensils,
   Check,
-  Sun,
-  Moon,
-  Coffee,
   Sparkles,
   List,
   Grid,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { useRecipes } from "@/features/recipes/actions";
-import { MealPlan, MealType } from "@/features/calendar/types";
+import { MealPlan } from "@/features/calendar/types";
 import {
   useMealPlans,
   addOrUpdateMealPlan,
@@ -33,6 +30,7 @@ import { syncAndFetchShoppingList } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { DEFAULT_SERVINGS } from "@/features/recipes/types";
 import { useMealPlanDrag } from "@/features/calendar/useMealPlanDrag";
+import { ServingsPicker } from "@/components/planning/ServingsPicker";
 import { toDateKey } from "@/lib/utils";
 import { categoryLabel } from "@/features/recipes/types";
 
@@ -102,12 +100,10 @@ export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
-  const [selectedMealType, setSelectedMealType] = useState<MealType>("dinner");
   const [selectedServings, setSelectedServings] = useState<number>(DEFAULT_SERVINGS);
   const [selectedPlanDetails, setSelectedPlanDetails] = useState<MealPlan | null>(null);
   // Editable copy of the plan shown in the details popup
   const [editPlanDate, setEditPlanDate] = useState<string>("");
-  const [editPlanMealType, setEditPlanMealType] = useState<MealType>("dinner");
   const [editPlanServings, setEditPlanServings] = useState<number>(DEFAULT_SERVINGS);
   const [moveToast, setMoveToast] = useState<string | null>(null);
   const [recipeSearch, setRecipeSearch] = useState<string>("");
@@ -225,7 +221,6 @@ export default function CalendarPage() {
   const handleDayClick = (dateKey: string) => {
     setSelectedDate(dateKey);
     setSelectedRecipeId(recipes[0]?.id || "");
-    setSelectedMealType("dinner");
     setSelectedServings(DEFAULT_SERVINGS);
     setIsModalOpen(true);
   };
@@ -245,7 +240,7 @@ export default function CalendarPage() {
         recipeTitle: chosenRecipe.title,
         recipeImageUrl: chosenRecipe.imageUrl,
         date: selectedDate,
-        mealType: selectedMealType,
+        mealType: "dinner", // meal moment no longer asked (DB column is NOT NULL)
         servings: selectedServings,
       },
       currentUserId
@@ -257,12 +252,11 @@ export default function CalendarPage() {
   const openPlanDetails = (plan: MealPlan, imageUrl?: string) => {
     setSelectedPlanDetails({ ...plan, recipeImageUrl: imageUrl });
     setEditPlanDate(plan.date);
-    setEditPlanMealType(plan.mealType);
     setEditPlanServings(plan.servings || DEFAULT_SERVINGS);
   };
 
   // Rescheduling keeps the plan id (same row, same shopping-list contributions)
-  const updatePlan = async (planId: string, changes: Partial<Pick<MealPlan, "date" | "mealType" | "servings">>) => {
+  const updatePlan = async (planId: string, changes: Partial<Pick<MealPlan, "date" | "servings">>) => {
     const currentUserId = user?.id;
     const plan = mealPlans.find((p) => p.id === planId);
     if (!currentUserId || !plan) return;
@@ -273,7 +267,7 @@ export default function CalendarPage() {
         recipeTitle: plan.recipeTitle,
         recipeImageUrl: plan.recipeImageUrl,
         date: changes.date ?? plan.date,
-        mealType: changes.mealType ?? plan.mealType,
+        mealType: plan.mealType,
         servings: changes.servings ?? plan.servings,
         notes: plan.notes,
       },
@@ -295,7 +289,7 @@ export default function CalendarPage() {
     if (!selectedPlanDetails || !editPlanDate) return;
     const planId = selectedPlanDetails.id;
     setSelectedPlanDetails(null);
-    updatePlan(planId, { date: editPlanDate, mealType: editPlanMealType, servings: editPlanServings });
+    updatePlan(planId, { date: editPlanDate, servings: editPlanServings });
   };
 
   const { drag, bindDraggable, consumeDragClick } = useMealPlanDrag((plan, date) => {
@@ -416,9 +410,6 @@ export default function CalendarPage() {
                         {plans.map((plan) => {
                           const planRecipe = recipeMap.get(plan.recipeId);
                           const imageUrl = plan.recipeImageUrl || planRecipe?.imageUrl;
-                          const isLunch = plan.mealType === "lunch";
-                          const isDinner = plan.mealType === "dinner";
-
                           return (
                             <div
                               key={plan.id}
@@ -440,29 +431,6 @@ export default function CalendarPage() {
                                 )}
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent sm:hidden" />
 
-                                {/* Meal Type Badge */}
-                                <div className="absolute top-2.5 left-2.5">
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 backdrop-blur-md shadow-xs ${
-                                      isLunch
-                                        ? "bg-amber-500/90 text-white"
-                                        : isDinner
-                                        ? "bg-emerald-600/90 text-white"
-                                        : "bg-blue-600/90 text-white"
-                                    }`}
-                                  >
-                                    {isLunch ? (
-                                      <Sun className="w-2.5 h-2.5" />
-                                    ) : isDinner ? (
-                                      <Moon className="w-2.5 h-2.5" />
-                                    ) : (
-                                      <Coffee className="w-2.5 h-2.5" />
-                                    )}
-                                    <span>
-                                      {isLunch ? "Midi" : isDinner ? "Soir" : "Matin"}
-                                    </span>
-                                  </span>
-                                </div>
                               </div>
 
                               {/* Recipe Details */}
@@ -600,8 +568,6 @@ export default function CalendarPage() {
 
                           <div className="space-y-1 mt-1 flex-1">
                             {dayPlans.map((plan) => {
-                              const isLunch = plan.mealType === "lunch";
-                              const isDinner = plan.mealType === "dinner";
                               const planRecipe = recipeMap.get(plan.recipeId);
                               const imageUrl = plan.recipeImageUrl || planRecipe?.imageUrl;
 
@@ -616,14 +582,8 @@ export default function CalendarPage() {
                                   }}
                                   className={`p-1 rounded-xl ${
                                     drag?.plan.id === plan.id ? "opacity-30" : ""
-                                  } text-[9px] font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all border ${
-                                    isLunch
-                                      ? "bg-amber-50/90 text-amber-950 border-amber-200/80 hover:bg-amber-100"
-                                      : isDinner
-                                      ? "bg-emerald-50/90 text-emerald-950 border-emerald-200/80 hover:bg-emerald-100"
-                                      : "bg-blue-50/90 text-blue-950 border-blue-200/80 hover:bg-blue-100"
-                                  }`}
-                                  title={`${plan.recipeTitle} (${isLunch ? "Midi" : isDinner ? "Soir" : "Matin"})`}
+                                  } text-[9px] font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all border bg-emerald-50/90 text-emerald-950 border-emerald-200/80 hover:bg-emerald-100`}
+                                  title={plan.recipeTitle}
                                 >
                                   <div className="w-5 h-5 rounded-lg overflow-hidden bg-slate-200 shrink-0 border border-white/80 shadow-2xs">
                                     {imageUrl ? (
@@ -635,7 +595,7 @@ export default function CalendarPage() {
                                       />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-[8px] bg-slate-100">
-                                        {isLunch ? "☀️" : isDinner ? "🌙" : "☕"}
+                                        🍽️
                                       </div>
                                     )}
                                   </div>
@@ -746,70 +706,14 @@ export default function CalendarPage() {
               </button>
             </div>
 
-            {/* Meal Type Switcher */}
-            <div className="flex gap-2 my-4 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-              <button
-                type="button"
-                onClick={() => setSelectedMealType("lunch")}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  selectedMealType === "lunch"
-                    ? "bg-white text-amber-700 shadow-xs border border-amber-200/60"
-                    : "text-slate-500 hover:text-slate-950"
-                }`}
-              >
-                <Sun className="w-3.5 h-3.5 text-amber-500" />
-                <span>Midi</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedMealType("dinner")}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  selectedMealType === "dinner"
-                    ? "bg-white text-emerald-700 shadow-xs border border-emerald-200/60"
-                    : "text-slate-500 hover:text-slate-950"
-                }`}
-              >
-                <Moon className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Soir</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedMealType("breakfast")}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  selectedMealType === "breakfast"
-                    ? "bg-white text-blue-700 shadow-xs border border-blue-200/60"
-                    : "text-slate-500 hover:text-slate-950"
-                }`}
-              >
-                <Coffee className="w-3.5 h-3.5 text-blue-500" />
-                <span>Matin</span>
-              </button>
-            </div>
-
-            {/* Servings (drives the shopping list quantities) */}
-            <div className="flex items-center justify-between mb-4 px-1">
-              <span className="text-xs font-bold text-slate-600">Nombre de personnes</span>
-              <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => setSelectedServings((s) => Math.max(1, s - 1))}
-                  className="w-6 h-6 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 font-extrabold text-sm active:scale-95 transition-all cursor-pointer"
-                  aria-label="Diminuer les portions"
-                >
-                  −
-                </button>
-                <span className="text-xs font-extrabold text-[#181A20] min-w-[48px] text-center">
-                  {selectedServings} pers.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedServings((s) => s + 1)}
-                  className="w-6 h-6 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-600 font-extrabold text-sm active:scale-95 transition-all cursor-pointer"
-                  aria-label="Augmenter les portions"
-                >
-                  +
-                </button>
-              </div>
+            {/* Number of people (drives the shopping list quantities) */}
+            <div className="my-4">
+              <span className="block text-xs font-bold text-slate-600 mb-2">Nombre de personnes</span>
+              <ServingsPicker
+                value={selectedServings}
+                onChange={setSelectedServings}
+                recipeServings={recipeMap.get(selectedRecipeId)?.servingsBase || DEFAULT_SERVINGS}
+              />
             </div>
 
             {/* Search recipe */}
@@ -905,21 +809,6 @@ export default function CalendarPage() {
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                    selectedPlanDetails.mealType === "lunch"
-                      ? "bg-amber-100 text-amber-800"
-                      : selectedPlanDetails.mealType === "dinner"
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-blue-100 text-blue-800"
-                  }`}
-                >
-                  {selectedPlanDetails.mealType === "lunch"
-                    ? "☀️ Midi"
-                    : selectedPlanDetails.mealType === "dinner"
-                    ? "🌙 Soir"
-                    : "☕ Matin"}
-                </span>
                 <span className="text-xs font-semibold text-slate-500 capitalize">
                   {formatDayLabel(selectedPlanDetails.date)}
                 </span>
@@ -996,55 +885,18 @@ export default function CalendarPage() {
                 </div>
               </div>
 
-              <div className="flex gap-1.5">
-                {(
-                  [
-                    ["breakfast", "☕ Matin"],
-                    ["lunch", "☀️ Midi"],
-                    ["dinner", "🌙 Soir"],
-                  ] as Array<[MealType, string]>
-                ).map(([type, label]) => (
-                  <button
-                    key={type}
-                    type="button"
-                    aria-pressed={editPlanMealType === type}
-                    onClick={() => setEditPlanMealType(type)}
-                    className={`flex-1 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
-                      editPlanMealType === type
-                        ? "bg-white text-[#181A20] shadow-xs border border-slate-200"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-600">Personnes</span>
-                <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-full border border-slate-200">
-                  <button
-                    type="button"
-                    aria-label="Diminuer les portions"
-                    onClick={() => setEditPlanServings((n) => Math.max(1, n - 1))}
-                    className="w-6 h-6 rounded-full bg-slate-50 text-slate-600 font-extrabold cursor-pointer"
-                  >
-                    −
-                  </button>
-                  <span className="text-xs font-extrabold min-w-[40px] text-center">{editPlanServings}</span>
-                  <button
-                    type="button"
-                    aria-label="Augmenter les portions"
-                    onClick={() => setEditPlanServings((n) => n + 1)}
-                    className="w-6 h-6 rounded-full bg-slate-50 text-slate-600 font-extrabold cursor-pointer"
-                  >
-                    +
-                  </button>
-                </div>
+              <div>
+                <span className="block text-xs font-bold text-slate-600 mb-2">Personnes</span>
+                <ServingsPicker
+                  value={editPlanServings}
+                  onChange={setEditPlanServings}
+                  recipeServings={
+                    recipeMap.get(selectedPlanDetails.recipeId)?.servingsBase || DEFAULT_SERVINGS
+                  }
+                />
               </div>
 
               {(editPlanDate !== selectedPlanDetails.date ||
-                editPlanMealType !== selectedPlanDetails.mealType ||
                 editPlanServings !== (selectedPlanDetails.servings || DEFAULT_SERVINGS)) && (
                 <button
                   type="button"

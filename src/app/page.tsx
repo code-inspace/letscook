@@ -7,8 +7,6 @@ import {
   Sparkles,
   Utensils,
   Plus,
-  Clock,
-  Star,
   ArrowRight,
   ChefHat,
   Search,
@@ -31,20 +29,18 @@ const DEFAULT_CATEGORIES = [
   ...RECIPE_CATEGORIES.map((c) => ({ id: c.value, name: c.label, slug: c.value })),
 ];
 
-function formatMealPlanDateBadge(dateStr: string, mealType: string): string {
+function formatMealPlanDateBadge(dateStr: string): string {
   const todayStr = toDateKey();
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = toDateKey(tomorrow);
 
-  const mealIcon =
-    mealType === "lunch" ? "☀️ Midi" : mealType === "dinner" ? "🌙 Soir" : "☕ Matin";
 
   if (dateStr === todayStr) {
-    return `Aujourd'hui • ${mealIcon}`;
+    return "Aujourd'hui";
   }
   if (dateStr === tomorrowStr) {
-    return `Demain • ${mealIcon}`;
+    return "Demain";
   }
 
   try {
@@ -55,9 +51,9 @@ function formatMealPlanDateBadge(dateStr: string, mealType: string): string {
       day: "numeric",
       month: "short",
     });
-    return `${formatted} • ${mealIcon}`;
+    return formatted;
   } catch {
-    return `${dateStr} • ${mealIcon}`;
+    return dateStr;
   }
 }
 
@@ -114,7 +110,7 @@ export default function HomePage() {
       const recipe = byId.get(plan.recipeId);
       if (!recipe || seen.has(recipe.id)) continue;
       seen.add(recipe.id);
-      result.push({ recipe, badge: formatMealPlanDateBadge(plan.date, plan.mealType) });
+      result.push({ recipe, badge: formatMealPlanDateBadge(plan.date) });
     }
     for (const recipe of filteredRecipes) {
       if (result.length >= MAX_SLIDES) break;
@@ -282,7 +278,7 @@ export default function HomePage() {
                             {plan.recipeTitle}
                           </span>
                           <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50 mt-1 inline-block truncate">
-                            {formatMealPlanDateBadge(plan.date, plan.mealType)}
+                            {formatMealPlanDateBadge(plan.date)}
                           </span>
                         </div>
                       </div>

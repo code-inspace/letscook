@@ -51,6 +51,7 @@ import {
 import { addOrUpdateMealPlan } from "@/features/calendar/actions";
 import { syncAndFetchShoppingList } from "@/features/groceries/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
+import { ServingsPicker } from "@/components/planning/ServingsPicker";
 import { RecalibrateSheet } from "@/components/ingredients/RecalibrateSheet";
 
 const DIFFICULTIES: Array<"Easy" | "Medium" | "Hard"> = ["Easy", "Medium", "Hard"];
@@ -79,7 +80,8 @@ export default function RecipeDetailPage() {
   const [planDate, setPlanDate] = useState<string>(
     toDateKey()
   );
-  const [planMealType, setPlanMealType] = useState<"lunch" | "dinner" | "breakfast" | "snack">("dinner");
+  // Planning is a 2-step flow: 1. date, 2. number of people
+  const [planStep, setPlanStep] = useState<1 | 2>(1);
   const [planServings, setPlanServings] = useState<number>(DEFAULT_SERVINGS);
   const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
   const [planSuccessToast, setPlanSuccessToast] = useState<string | null>(null);
@@ -229,8 +231,30 @@ export default function RecipeDetailPage() {
     flight.oncancel = done;
   };
 
+  const openPlanModal = () => {
+    setPlanStep(1);
+    setPlanDate(toDateKey());
+    setPlanServings(DEFAULT_SERVINGS);
+    setIsPlanModalOpen(true);
+  };
+
+  const planDateLabel = (() => {
+    if (!planDate) return "";
+    const [y, m, d] = planDate.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+  })();
+
   const handleConfirmPlan = async (e: React.FormEvent) => {
     e.preventDefault();
+    // "Enter" in the date field moves to step 2 instead of confirming
+    if (planStep === 1) {
+      if (planDate) setPlanStep(2);
+      return;
+    }
     if (!user?.id || !recipe) return;
 
     setIsSubmittingPlan(true);
@@ -242,7 +266,8 @@ export default function RecipeDetailPage() {
           recipeTitle: recipe.title,
           recipeImageUrl: recipe.imageUrl,
           date: planDate,
-          mealType: planMealType,
+          // The meal moment is no longer asked; kept for the DB column (NOT NULL)
+          mealType: "dinner",
           servings: planServings,
         },
         user.id
@@ -574,7 +599,7 @@ export default function RecipeDetailPage() {
           <button
             ref={planButtonRef}
             type="button"
-            onClick={() => setIsPlanModalOpen(true)}
+            onClick={openPlanModal}
             className={`relative px-3.5 py-2 rounded-full backdrop-blur-md flex items-center gap-1.5 text-xs font-bold shadow-sm border active:scale-95 transition-colors duration-300 cursor-pointer ${
               planConfirmation
                 ? "plan-pop bg-[#5DB534] text-white border-[#5DB534]"
@@ -1014,106 +1039,96 @@ export default function RecipeDetailPage() {
             </div>
 
             <form onSubmit={handleConfirmPlan} className="mt-4 space-y-4">
-              {/* Quick Date Selectors */}
-              <div>
-                <label className="block text-xs font-bold text-[#181A20] mb-2">
-                  Date du repas
-                </label>
-                <div className="grid grid-cols-3 gap-2 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDateSelect(0)}
-                    className={`py-2 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
-                      planDate === toDateKey()
-                        ? "bg-[#5DB534] text-white border-[#5DB534]"
-                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+              {/* Step indicator */}
+              <div className="flex items-center gap-2" aria-label={`Étape ${planStep} sur 2`}>
+                {[1, 2].map((n) => (
+                  <div
+                    key={n}
+                    className={`h-1.5 flex-1 rounded-full transition-colors ${
+                      n <= planStep ? "bg-[#5DB534]" : "bg-slate-200"
                     }`}
-                  >
-                    Aujourd'hui
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDateSelect(1)}
-                    className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-all cursor-pointer"
-                  >
-                    Demain
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDateSelect(2)}
-                    className="py-2 px-2 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-all cursor-pointer"
-                  >
-                    Après-demain
-                  </button>
-                </div>
-                <input
-                  type="date"
-                  value={planDate}
-                  onChange={(e) => setPlanDate(e.target.value)}
-                  className="w-full bg-slate-50 px-4 py-2.5 rounded-xl text-xs font-semibold text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
-                  required
-                />
+                  />
+                ))}
               </div>
 
-              {/* Meal Type (Lunch vs Dinner) */}
-              <div>
-                <label className="block text-xs font-bold text-[#181A20] mb-2">
-                  Moment du repas
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPlanMealType("lunch")}
-                    className={`py-3 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      planMealType === "lunch"
-                        ? "bg-emerald-50 border-[#5DB534] text-[#5DB534] shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
-                    }`}
-                  >
-                    <span>☀️</span>
-                    <span>Déjeuner (Midi)</span>
-                  </button>
+              {planStep === 1 ? (
+                <>
+                  {/* STEP 1: date */}
+                  <div>
+                    <label className="block text-xs font-bold text-[#181A20] mb-2">
+                      1. Quel jour ?
+                    </label>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      {[
+                        [0, "Aujourd'hui"],
+                        [1, "Demain"],
+                        [2, "Après-demain"],
+                      ].map(([offset, label]) => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + (offset as number));
+                        const isOn = planDate === toDateKey(d);
+                        return (
+                          <button
+                            key={offset}
+                            type="button"
+                            onClick={() => handleQuickDateSelect(offset as number)}
+                            aria-pressed={isOn}
+                            className={`py-2 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                              isOn
+                                ? "bg-[#5DB534] text-white border-[#5DB534]"
+                                : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <input
+                      type="date"
+                      value={planDate}
+                      onChange={(e) => setPlanDate(e.target.value)}
+                      className="w-full bg-slate-50 px-4 py-2.5 rounded-xl text-xs font-semibold text-[#181A20] border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+                      required
+                    />
+                  </div>
 
                   <button
                     type="button"
-                    onClick={() => setPlanMealType("dinner")}
-                    className={`py-3 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      planMealType === "dinner"
-                        ? "bg-emerald-50 border-[#5DB534] text-[#5DB534] shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
-                    }`}
+                    onClick={() => setPlanStep(2)}
+                    disabled={!planDate}
+                    className="w-full py-3.5 bg-[#181A20] hover:bg-[#2C303B] disabled:opacity-40 text-white font-extrabold text-xs rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <span>🌙</span>
-                    <span>Dîner (Soir)</span>
+                    <span>Suivant</span>
+                    <ArrowRight className="w-4 h-4" />
                   </button>
-                </div>
-              </div>
+                </>
+              ) : (
+                <>
+                  {/* Chosen date, editable */}
+                  <button
+                    type="button"
+                    onClick={() => setPlanStep(1)}
+                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-left cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 text-xs font-bold text-[#181A20] capitalize">
+                      <CalendarIcon className="w-4 h-4 text-[#5DB534]" />
+                      {planDateLabel}
+                    </span>
+                    <span className="text-[11px] font-bold text-[#5DB534]">Modifier</span>
+                  </button>
 
-              {/* Servings */}
-              <div>
-                <label className="block text-xs font-bold text-[#181A20] mb-2">
-                  Nombre de convives
-                </label>
-                <div className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setPlanServings((s) => Math.max(1, s - 1))}
-                    className="w-9 h-9 rounded-lg bg-white shadow-xs font-extrabold text-slate-700 hover:bg-slate-100 active:scale-95 flex items-center justify-center cursor-pointer"
-                  >
-                    -
-                  </button>
-                  <span className="text-sm font-extrabold text-[#181A20]">
-                    {planServings} personne{planServings > 1 ? "s" : ""}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPlanServings((s) => s + 1)}
-                    className="w-9 h-9 rounded-lg bg-white shadow-xs font-extrabold text-slate-700 hover:bg-slate-100 active:scale-95 flex items-center justify-center cursor-pointer"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
+                  {/* STEP 2: number of people */}
+                  <div>
+                    <label className="block text-xs font-bold text-[#181A20] mb-2">
+                      2. Pour combien de personnes ?
+                    </label>
+                    <ServingsPicker
+                      value={planServings}
+                      onChange={setPlanServings}
+                      recipeServings={recipe.servingsBase || DEFAULT_SERVINGS}
+                    />
+                  </div>
 
               {/* Shopping auto-sync info box */}
               <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200/60 flex items-center gap-2.5">
@@ -1138,6 +1153,8 @@ export default function RecipeDetailPage() {
                   </>
                 )}
               </button>
+                </>
+              )}
             </form>
           </div>
         </div>
