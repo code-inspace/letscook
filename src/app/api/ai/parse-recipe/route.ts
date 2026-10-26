@@ -78,6 +78,18 @@ INSTRUCTIONS CRITIQUES :
    - Sur la photo du plat fini (recto) : Détecte les coordonnées [ymin, xmin, ymax, xmax] (échelle 0 à 1000) de l'assiette/bol ("mainDishCropBox") une fois la photo remise droite.
    - Sur la photo des étapes (verso) : Pour CHAQUE étape numérotée (Étape 1, 2, 3, 4, 5, 6...), identifie avec grande précision le rectangle [ymin, xmin, ymax, xmax] (échelle 0 à 1000) de la photo/illustration de l'étape correspondante ("stepCropBox") une fois la photo remise droite.
 
+5. FORMAT « CAPTURES D'ÉCRAN DE SITE KIT-REPAS » (Quitoque, HelloFresh, Cook... : 1 à plusieurs longues captures verticales de page web, dans n'importe quel ordre) :
+   - Une capture peut contenir la photo héros du plat avec le titre incrusté dessus, les infos (Total, Calories, Protéines, Difficulté), la description, les allergènes, les ingrédients, les ustensiles et les valeurs nutritionnelles ; une autre, les « Instructions » avec une grille de photos numérotées sur 2 colonnes. Croise TOUTES les photos pour construire UNE seule recette.
+   - Ignore tout le chrome d'interface : bouton « Enregistrer », croix de fermeture, « Origine : UE FR », labels de pays, bandeaux.
+   - Difficulté : « Facile » → "Easy", « Intermédiaire » → "Medium", « Difficile » → "Hard". prepTimeMinutes = durée « Total ».
+   - Nutrition : prends la colonne « Par portion » (calories en kcal, protéines, glucides, lipides, fibres, sel si présents).
+   - Ingrédients : le sélecteur « quantité » (ex. 6) donne le nombre de personnes pour lequel les quantités affichées sont valables → servingsBase = ce nombre. Garde les quantités affichées telles quelles (ex. « 1500 g » → amount 1500, unit "g" ; « 2 sachet(s) » → amount 2, unit "sachet(s)" ; « 1.5 pot(s) »).
+   - Section « Non inclus dans la livraison » (bouillon, huile d'olive, poivre et sel...) : ajoute ces éléments dans "ingredients" avec amount 0 et unit "" (« Poivre et sel » → deux ingrédients « Poivre » et « Sel »). Ne les oublie pas.
+   - Les étapes contiennent des quantités « par personne » (ex. « ½ cc de thym séché par personne ») : recopie-les dans la description sans les convertir.
+   - Étapes : une étape par vignette numérotée ; title = le titre de la vignette (« C'est parti ! », « Au tour des champignons »...), description = ses puces recopiées fidèlement, séparées par des retours à la ligne. stepPhotoIndex = index de la capture qui contient la grille, stepCropBox = rectangle de la PHOTO seule de la vignette (sans le numéro ni le texte en dessous).
+   - Photo du plat : frontPhotoIndex = capture qui contient la photo héros ; mainDishCropBox = rectangle du plat dans cette photo, SANS le titre ni le sous-titre incrustés (reste sur l'assiette).
+   - Les captures sont droites : photoOrientations = 0 pour chacune.
+
 Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
 {
   "title": "Nom exact du plat extrait par OCR",
@@ -93,7 +105,9 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
     "caloriesKcal": 650,
     "proteines": "24g",
     "glucides": "75g",
-    "lipides": "28g"
+    "lipides": "28g",
+    "fibres": "6g",
+    "sel": "1.2g"
   },
   "allergens": ["Sésame", "Soja"],
   "photoOrientations": [0, 90],

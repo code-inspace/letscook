@@ -61,8 +61,14 @@ export async function compressImageForUpload(
         URL.revokeObjectURL(objectUrl);
         let { width, height } = img;
 
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
+        // Long page screenshots (recipe sites): keep the height so small text stays readable
+        const maxHeight = height > width * 1.6 ? maxDimension * 2.5 : maxDimension;
+        if (width > maxDimension || height > maxHeight) {
+          if (height > width * 1.6) {
+            const ratio = Math.min(maxDimension / width, maxHeight / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          } else if (width > height) {
             height = Math.round((height * maxDimension) / width);
             width = maxDimension;
           } else {
@@ -179,10 +185,20 @@ export async function cropAndRotateRegion(
     const box = cropBox && cropBox.length === 4 ? cropBox : [0, 0, 1000, 1000];
     const [ymin, xmin, ymax, xmax] = box;
 
-    const sx = Math.max(0, (xmin / 1000) * uprightWidth);
-    const sy = Math.max(0, (ymin / 1000) * uprightHeight);
-    const sWidth = Math.min(uprightWidth - sx, Math.max(10, ((xmax - xmin) / 1000) * uprightWidth));
-    const sHeight = Math.min(uprightHeight - sy, Math.max(10, ((ymax - ymin) / 1000) * uprightHeight));
+    let sx = Math.max(0, (xmin / 1000) * uprightWidth);
+    let sy = Math.max(0, (ymin / 1000) * uprightHeight);
+    let sWidth = Math.min(uprightWidth - sx, Math.max(10, ((xmax - xmin) / 1000) * uprightWidth));
+    let sHeight = Math.min(uprightHeight - sy, Math.max(10, ((ymax - ymin) / 1000) * uprightHeight));
+
+    // The result is square: crop the box to a centered square instead of squashing it
+    // (step photos on recipe sites are landscape).
+    if (sWidth > sHeight) {
+      sx += (sWidth - sHeight) / 2;
+      sWidth = sHeight;
+    } else if (sHeight > sWidth) {
+      sy += (sHeight - sWidth) / 2;
+      sHeight = sWidth;
+    }
 
     // 3. Final target cropped canvas with culinary enhancement
     const targetSize = 600;
