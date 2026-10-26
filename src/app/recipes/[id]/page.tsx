@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useMemo } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   Heart,
@@ -48,8 +48,13 @@ import {
   deleteRecipeFromDb,
   toggleFavoriteInDb,
 } from "@/features/recipes/actions";
-import { addOrUpdateMealPlan } from "@/features/calendar/actions";
-import { syncAndFetchShoppingList } from "@/features/groceries/actions";
+import { addOrUpdateMealPlan, useMealPlans } from "@/features/calendar/actions";
+import {
+  getIngredientAvailability,
+  syncAndFetchShoppingList,
+  useExcludedIngredients,
+  useShoppingItems,
+} from "@/features/groceries/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
 import { useReferenceServings } from "@/features/settings/referenceServings";
 import { ServingsPicker } from "@/components/planning/ServingsPicker";
@@ -72,8 +77,21 @@ export default function RecipeDetailPage() {
   const isFavorite = Boolean(recipe?.isFavorite);
   const isLoading = recipes === null;
 
+  // Opened from a planned meal (?plan=<id>): use its servings and show what is covered
+  const planId = useSearchParams()?.get("plan") || null;
+  const mealPlans = useMealPlans(user?.id);
+  const plannedMeal = useMemo(
+    () => (planId ? mealPlans?.find((p) => p.id === planId && p.recipeId === recipeId) || null : null),
+    [mealPlans, planId, recipeId]
+  );
+  const shoppingItems = useShoppingItems(plannedMeal ? user?.id : null);
+  const excludedKeys = useExcludedIngredients(plannedMeal ? user?.id : null);
+
   // Chosen by the user only: background refreshes must never reset it
-  const [servings, setServings] = useState<number>(DEFAULT_SERVINGS);
+  const [chosenServings, setChosenServings] = useState<number | null>(null);
+  const servings = chosenServings ?? plannedMeal?.servings ?? DEFAULT_SERVINGS;
+  const setServings = (next: number | ((current: number) => number)) =>
+    setChosenServings(typeof next === "function" ? next(servings) : next);
 
   const [activeTab, setActiveTab] = useState<"ingredients" | "steps" | "nutrition">("ingredients");
 
@@ -898,8 +916,32 @@ export default function RecipeDetailPage() {
         {/* TAB 1: INGREDIENTS */}
         {activeTab === "ingredients" && (
           <div className="space-y-2.5">
+            {plannedMeal && (() => {
+              const statuses = (recipe.ingredients || []).map((ing) =>
+                getIngredientAvailability(ing.name, plannedMeal.id, shoppingItems || [], excludedKeys || [])
+              );
+              const missing = statuses.filter((st) => st === "missing").length;
+              const have = statuses.filter((st) => st === "have").length;
+              return (
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200/60 text-[11px] font-bold text-emerald-800 flex items-center justify-between gap-2">
+                  <span>
+                    Repas du {new Date(`${plannedMeal.date}T12:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                    {" · "}
+                    {plannedMeal.servings || DEFAULT_SERVINGS} pers.
+                  </span>
+                  {(have > 0 || missing > 0) && (
+                    <span className="shrink-0">
+                      {missing === 0 ? "Tout est là ✓" : `${missing} à acheter`}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {recipe.ingredients && recipe.ingredients.length > 0 ? (
               recipe.ingredients.map((ing, idx) => {
+                const availability = plannedMeal
+                  ? getIngredientAvailability(ing.name, plannedMeal.id, shoppingItems || [], excludedKeys || [])
+                  : "unknown";
                 const scaledAmount =
                   typeof ing.amount === "number"
                     ? Math.round(ing.amount * scaleFactor * 100) / 100
@@ -911,10 +953,25 @@ export default function RecipeDetailPage() {
                     className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 hover:border-slate-200 transition-colors"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-2 h-2 rounded-full bg-[#5DB534] shrink-0" />
+                      <div
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          availability === "missing" ? "bg-amber-400" : "bg-[#5DB534]"
+                        }`}
+                      />
                       <span className="text-xs font-bold text-[#181A20] truncate">
                         {ing.name}
                       </span>
+                      {availability !== "unknown" && (
+                        <span
+                          className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shrink-0 ${
+                            availability === "have"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                              : "bg-amber-50 text-amber-700 border border-amber-200/60"
+                          }`}
+                        >
+                          {availability === "have" ? "Je l'ai" : "À acheter"}
+                        </span>
+                      )}
                     </div>
 
                     {(scaledAmount || ing.unit) && (

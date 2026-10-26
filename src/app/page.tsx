@@ -257,7 +257,7 @@ export default function HomePage() {
                   {upcomingPlans.map((plan) => (
                     <Link
                       key={plan.id}
-                      href={`/recipes/${plan.recipeId}`}
+                      href={`/recipes/${plan.recipeId}?plan=${plan.id}`}
                       className="min-w-[200px] max-w-[220px] p-3 rounded-2xl bg-white border border-slate-100 shadow-2xs hover:shadow-xs transition-all flex flex-col gap-2 shrink-0 group active:scale-98"
                     >
                       <div className="flex items-center gap-2.5">

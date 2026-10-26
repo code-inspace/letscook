@@ -16,6 +16,37 @@ export const shoppingStore = createUserListStore<ShoppingItem>(
 );
 const excludedStore = createUserListStore<string>("letscook_excluded_groceries_");
 
+/** Keys of ingredients removed from the shopping list ("<meal_plan_id>_<ingredient>"). */
+export function useExcludedIngredients(userId: string | null | undefined): string[] | null {
+  return useUserList(excludedStore, userId);
+}
+
+export type IngredientAvailability = "have" | "missing" | "unknown";
+
+/**
+ * Whether an ingredient of a planned meal is covered: ticked in the shopping
+ * list, or removed from it (the user already has it). "unknown" when the list
+ * knows nothing about it (meal in the past, list not built yet).
+ */
+export function getIngredientAvailability(
+  ingredientName: string,
+  mealPlanId: string,
+  items: ShoppingItem[],
+  excludedKeys: string[]
+): IngredientAvailability {
+  const normKey = normalizeIngredientKey(ingredientName);
+  if (!normKey) return "unknown";
+  if (excludedKeys.includes(`${mealPlanId}_${normKey}`)) return "have";
+  const item = items.find(
+    (i) =>
+      !i.isCustom &&
+      i.normalizedKey === normKey &&
+      (i.recipeSources || []).some((src) => src.mealPlanId === mealPlanId)
+  );
+  if (!item) return "unknown";
+  return item.checked ? "have" : "missing";
+}
+
 export function getStoredShoppingItems(userId?: string | null): ShoppingItem[] {
   if (!userId || typeof window === "undefined") return [];
   return shoppingStore.read(userId);

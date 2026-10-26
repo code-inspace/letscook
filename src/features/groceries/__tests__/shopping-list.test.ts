@@ -99,3 +99,30 @@ describe("rebuildShoppingList", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("getIngredientAvailability", () => {
+  const item = (over: Record<string, unknown>) => ({
+    id: "auto_lait",
+    userId: "me",
+    name: "Lait",
+    normalizedKey: "lait",
+    checked: false,
+    isCustom: false,
+    createdAt: "2026-10-01T00:00:00Z",
+    recipeSources: [{ recipeId: "r1", recipeTitle: "Gratin", mealPlanId: "p1" }],
+    ...over,
+  });
+
+  it("tells ticked / removed ingredients from missing and unknown ones", async () => {
+    vi.resetModules();
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("localStorage", new MemoryStorage());
+    const { getIngredientAvailability } = await import("../actions");
+
+    expect(getIngredientAvailability("Lait", "p1", [item({})] as never, [])).toBe("missing");
+    expect(getIngredientAvailability("Lait", "p1", [item({ checked: true })] as never, [])).toBe("have");
+    expect(getIngredientAvailability("Lait", "p1", [], ["p1_lait"])).toBe("have");
+    expect(getIngredientAvailability("Lait", "p2", [item({})] as never, [])).toBe("unknown");
+    expect(getIngredientAvailability("Sel", "p1", [item({})] as never, [])).toBe("unknown");
+  });
+});

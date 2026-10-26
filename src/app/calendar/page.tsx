@@ -913,7 +913,7 @@ export default function CalendarPage() {
               <button
                 type="button"
                 onClick={() =>
-                  router.push(`/recipes/${selectedPlanDetails.recipeId}`)
+                  router.push(`/recipes/${selectedPlanDetails.recipeId}?plan=${selectedPlanDetails.id}`)
                 }
                 className="flex-1 py-3 bg-[#5DB534] hover:bg-[#4FA12A] text-white text-xs font-extrabold rounded-2xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
               >
