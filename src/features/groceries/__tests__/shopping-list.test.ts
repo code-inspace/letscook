@@ -53,7 +53,9 @@ describe("rebuildShoppingList", () => {
     const list = rebuildShoppingList("me");
     // 800 g for 4 → 400 g (2 pers.) + 1200 g (6 pers.)
     expect(list).toHaveLength(1);
-    expect(list[0].amount).toBe(1600);
+    expect(list[0].amount).toBe(1.6);
+    expect(list[0].unit).toBe("kg");
+    expect(list[0].quantityLabel).toBe("1,6 kg");
     expect(list[0].recipeSources?.map((s) => s.amount)).toEqual([400, 1200]);
     vi.unstubAllGlobals();
   });

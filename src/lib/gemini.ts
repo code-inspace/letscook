@@ -41,6 +41,25 @@ async function callModel(
 ): Promise<GeminiRaceResult> {
   const log = opts.log ?? (() => {});
   log(`Appel de Gemini (${model}), ${Math.round(timeoutMs / 1000)} s max…`);
+  // Explicit timer instead of AbortSignal.any([.., AbortSignal.timeout()]): on Node 20
+  // that composite signal can be garbage-collected and then never fires.
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException(`Délai de ${Math.round(timeoutMs / 1000)} s dépassé (timeout)`, "TimeoutError")),
+    timeoutMs
+  );
+  const onParentAbort = () => controller.abort(signal.reason);
+  if (signal.aborted) onParentAbort();
+  else signal.addEventListener("abort", onParentAbort, { once: true });
+  try {
+    return await requestModel(model, opts, controller.signal);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onParentAbort);
+  }
+}
+
+async function requestModel(model: string, opts: GeminiRaceOptions, signal: AbortSignal): Promise<GeminiRaceResult> {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${opts.apiKey}`,
     {
@@ -50,7 +69,7 @@ async function callModel(
         contents: [{ parts: opts.parts }],
         generationConfig: { response_mime_type: "application/json", temperature: opts.temperature ?? 0.1 },
       }),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
+      signal,
     }
   );
   if (!res.ok) {

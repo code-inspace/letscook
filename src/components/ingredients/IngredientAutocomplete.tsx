@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Database, Sparkles } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
+import { ingredientDisplayName, ingredientKey } from "@/features/ingredients/canonical";
 import { categorizeIngredient, CATEGORY_ICONS } from "@/features/groceries/categorizer";
 
 export interface IngredientSuggestion {
@@ -57,12 +58,14 @@ export function IngredientAutocomplete({
               imageUrl: row.image_url || undefined,
             }));
 
-          // Dédoublonnage par nom
+          // Dédoublonnage par ingrédient canonique ("Gousse d'ail" = "Ail")
           const uniqueMap = new Map<string, IngredientSuggestion>();
           list.forEach((item) => {
-            const key = item.name.toLowerCase();
-            if (!uniqueMap.has(key)) {
-              uniqueMap.set(key, item);
+            const key = ingredientKey(item.name);
+            const prev = uniqueMap.get(key);
+            const name = ingredientDisplayName(item.name);
+            if (!prev || name.length < prev.name.length) {
+              uniqueMap.set(key, { ...item, name, imageUrl: item.imageUrl || prev?.imageUrl });
             }
           });
           setDbIngredients(Array.from(uniqueMap.values()));

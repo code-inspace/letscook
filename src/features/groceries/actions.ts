@@ -5,6 +5,14 @@ import { createClient } from "@/utils/supabase/client";
 import { fetchMealPlansFromDb, getStoredMealPlans, mealPlansStore } from "@/features/calendar/actions";
 import { fetchRecipesFromDb, getStoredRecipes, recipesStore } from "@/features/recipes/actions";
 import { createUserListStore, useUserList } from "@/lib/userStore";
+import {
+  formatQuantities,
+  ingredientDisplayName,
+  ingredientId,
+  ingredientKey,
+  pickDisplayName,
+  sumQuantities,
+} from "@/features/ingredients/canonical";
 import { DEFAULT_SERVINGS } from "@/features/recipes/types";
 import { toDateKey } from "@/lib/utils";
 import { dequeue, mergeWithPending, runRemote } from "@/lib/outbox";
@@ -67,7 +75,13 @@ export function saveStoredExcludedIngredients(keys: string[], userId: string): v
   excludedStore.write(userId, keys);
 }
 
+/** Canonical key ("2 gousses d'ail" → "ail"), see features/ingredients/canonical. */
 export function normalizeIngredientKey(name: string): string {
+  return ingredientKey(name);
+}
+
+/** Key format used before canonical keys: still matched for stored exclusions / checked states. */
+export function legacyIngredientKey(name: string): string {
   if (!name) return "";
   let s = name
     .toLowerCase()
@@ -128,6 +142,7 @@ export function rebuildShoppingList(
     );
 
   const aggregated = new Map<string, ShoppingItem>();
+  const namesByKey = new Map<string, string[]>();
 
   for (const plan of upcomingPlans) {
     const recipe = recipeMap.get(plan.recipeId);
@@ -143,8 +158,13 @@ export function rebuildShoppingList(
           : rawIng;
       const normKey = normalizeIngredientKey(ing.name);
       if (!normKey) continue;
-      const legacyKey = `${plan.id}_${ing.name.toLowerCase().trim()}`;
-      if (excludedKeys.has(`${plan.id}_${normKey}`) || excludedKeys.has(legacyKey)) continue;
+      if (
+        excludedKeys.has(`${plan.id}_${normKey}`) ||
+        excludedKeys.has(`${plan.id}_${legacyIngredientKey(ing.name)}`) ||
+        excludedKeys.has(`${plan.id}_${ing.name.toLowerCase().trim()}`)
+      ) {
+        continue;
+      }
 
       const contribution: RecipeContribution = {
         recipeId: recipe.id,
@@ -158,12 +178,8 @@ export function rebuildShoppingList(
 
       const existing = aggregated.get(normKey);
       if (existing) {
-        if (typeof existing.amount === "number" && typeof ing.amount === "number") {
-          existing.amount = Math.round((existing.amount + ing.amount) * 100) / 100;
-        } else if (typeof ing.amount === "number" && existing.amount == null) {
-          existing.amount = ing.amount;
-        }
-        if (!existing.unit && ing.unit) existing.unit = ing.unit;
+        // Quantities are summed per unit once every source is known (see below)
+        namesByKey.get(normKey)!.push(ing.name);
         if (
           !existing.recipeSources!.some(
             (s) => s.mealPlanId === plan.id && s.recipeId === recipe.id
@@ -175,7 +191,9 @@ export function rebuildShoppingList(
       }
 
       const id = `auto_${normKey}`;
-      const mine = currentById.get(id);
+      // Items built with the former key format keep their checked state
+      const mine = currentById.get(id) ?? currentById.get(`auto_${legacyIngredientKey(ing.name)}`);
+      namesByKey.set(normKey, [ing.name]);
       const theirs = remote?.get(id);
       const useRemote = theirs && (!mine || time(theirs.updatedAt) > time(mine.updatedAt));
 
@@ -200,6 +218,15 @@ export function rebuildShoppingList(
         updatedAt: useRemote ? theirs!.updatedAt : mine?.updatedAt,
       });
     }
+  }
+
+  // One line per ingredient: clean name, quantities summed per unit ("2 gousses + 10 g")
+  for (const [key, item] of aggregated) {
+    item.name = pickDisplayName(namesByKey.get(key) || [item.name]) || item.name;
+    const quantities = sumQuantities(item.recipeSources || []);
+    item.quantityLabel = quantities.length ? formatQuantities(quantities) : undefined;
+    item.amount = quantities.length === 1 ? quantities[0].amount : null;
+    item.unit = quantities.length === 1 ? quantities[0].unit || null : null;
   }
 
   const customItems = current.filter((i) => i.isCustom);
@@ -437,12 +464,11 @@ export async function addCustomShoppingItem(
   await pushShoppingItem(userId, newItem.id);
 
   // Shared ingredient catalog (autocomplete): best effort
-  const cleanName = newItem.name;
-  if (cleanName) {
-    const ingId = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+  const ingId = ingredientId(newItem.name);
+  if (ingId !== "ing_") {
     createClient()
       .from("ingredients")
-      .upsert([{ id: ingId, name: cleanName, category: newItem.category, updated_at: now }], {
+      .upsert([{ id: ingId, name: ingredientDisplayName(newItem.name), category: newItem.category, updated_at: now }], {
         onConflict: "id",
       })
       .then(({ error }) => error && console.warn("ingredients upsert error:", error));
@@ -551,15 +577,20 @@ export function useShoppingItems(userId: string | null | undefined): ShoppingIte
 /**
  * Formats the shopping list into ready-to-export text for Apple Reminders / Share Sheet
  */
+/** "2 gousse(s) + 10 g", or the single amount/unit of a manual item. */
+export function shoppingQuantityLabel(item: ShoppingItem): string {
+  if (item.quantityLabel) return item.quantityLabel;
+  return [item.amount || "", item.unit || ""].filter(Boolean).join(" ");
+}
+
 export function formatShoppingListForExport(items: ShoppingItem[]): string {
   const activeItems = items.filter((i) => !i.checked);
   if (activeItems.length === 0) return "Aucun article dans la liste de courses.";
 
   const lines = activeItems.map((item) => {
-    const amountStr = item.amount ? `${item.amount} ` : "";
-    const unitStr = item.unit ? `${item.unit} ` : "";
+    const qty = shoppingQuantityLabel(item);
     const sourceStr = item.recipeTitle ? ` (${item.recipeTitle})` : "";
-    return `• ${amountStr}${unitStr}${item.name}${sourceStr}`;
+    return `• ${qty ? `${qty} ` : ""}${item.name}${sourceStr}`;
   });
 
   return `🛒 Liste de courses Let's Cook :\n\n${lines.join("\n")}`;

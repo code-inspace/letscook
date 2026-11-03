@@ -25,10 +25,12 @@ import {
   deleteShoppingItemFromList,
   clearCompletedShoppingItems,
   formatShoppingListForExport,
+  shoppingQuantityLabel,
 } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { useRecipes } from "@/features/recipes/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
+import { formatQuantities, sumQuantities } from "@/features/ingredients/canonical";
 import { RemindersImportSheet } from "@/components/ingredients/RemindersImportSheet";
 import { ParsedReminder, remindersShortcutUrl } from "@/features/groceries/remindersImport";
 
@@ -207,19 +209,13 @@ export default function GroceriesPage() {
 
           if (activeSources.length === 0) return null;
 
-          // Recompute total amount for active sources
-          let sumAmount: number | null = null;
-          let hasAmounts = false;
-          activeSources.forEach((s) => {
-            if (typeof s.amount === "number") {
-              sumAmount = (sumAmount || 0) + s.amount;
-              hasAmounts = true;
-            }
-          });
-
+          // Recompute quantities for the selected recipes, summed per unit
+          const quantities = sumQuantities(activeSources);
           return {
             ...item,
-            amount: hasAmounts && sumAmount !== null ? Math.round(sumAmount * 100) / 100 : item.amount,
+            amount: quantities.length === 1 ? quantities[0].amount : null,
+            unit: quantities.length === 1 ? quantities[0].unit || null : null,
+            quantityLabel: quantities.length ? formatQuantities(quantities) : undefined,
             recipeSources: activeSources,
           };
         }
@@ -619,10 +615,9 @@ export default function GroceriesPage() {
                               )}
 
                               {/* Amount Pill */}
-                              {(item.amount || item.unit) && (
+                              {shoppingQuantityLabel(item) && (
                                 <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
-                                  {item.amount ? `${item.amount} ` : ""}
-                                  {item.unit || ""}
+                                  {shoppingQuantityLabel(item)}
                                 </span>
                               )}
 
@@ -749,10 +744,9 @@ export default function GroceriesPage() {
                             )}
 
                             {/* Amount Pill */}
-                            {(item.amount || item.unit) && (
+                            {shoppingQuantityLabel(item) && (
                               <span className="text-[10px] font-semibold text-slate-400 bg-slate-200/60 px-2 py-0.5 rounded-md">
-                                {item.amount ? `${item.amount} ` : ""}
-                                {item.unit || ""}
+                                {shoppingQuantityLabel(item)}
                               </span>
                             )}
 

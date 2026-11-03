@@ -15,6 +15,8 @@ export interface ShoppingItem {
   normalizedKey?: string;
   amount?: number | null;
   unit?: string | null;
+  /** Merged quantities of an auto item, summed per unit: "2 gousse(s) + 10 g" */
+  quantityLabel?: string;
   checked: boolean;
   isCustom: boolean;
   recipeId?: string;

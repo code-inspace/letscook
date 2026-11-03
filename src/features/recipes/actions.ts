@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Recipe, DEFAULT_SERVINGS } from "./types";
+import { ingredientDisplayName, ingredientId } from "@/features/ingredients/canonical";
 import { encryptText, decryptText, isEncrypted } from "@/lib/crypto/encryption";
 import { createClient } from "@/utils/supabase/client";
 import { categorizeIngredient } from "@/features/groceries/categorizer";
@@ -255,9 +256,11 @@ export async function pushRecipe(userId: string, recipeId: string): Promise<bool
     const now = new Date().toISOString();
     const ingredients = new Map<string, object>();
     for (const ing of recipe.ingredients) {
-      const cleanName = ing?.name?.trim();
-      if (!cleanName) continue;
-      const id = `ing_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+      if (!ing?.name?.trim()) continue;
+      // Canonical id: "2 gousses d'ail" and "Ail" are the same catalog entry
+      const id = ingredientId(ing.name);
+      if (id === "ing_") continue;
+      const cleanName = ingredientDisplayName(ing.name);
       ingredients.set(id, {
         id,
         name: cleanName,
