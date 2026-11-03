@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DEFAULT_SERVINGS } from "@/features/recipes/types";
+import { cleanNutrition } from "@/features/ai/nutrition";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -22,7 +23,8 @@ INSTRUCTIONS :
 1. Extrais TOUTES les recettes présentes dans le PDF (souvent une seule, parfois plusieurs). N'invente rien : titre, ingrédients et étapes doivent provenir du document.
 2. TRADUCTION OBLIGATOIRE EN FRANÇAIS si le document est dans une autre langue (titres, ingrédients avec unités métriques usuelles, étapes).
 3. Quantités : unités françaises (g, kg, ml, cl, L, c. à soupe, c. à café, pincée, gousse(s), pièce(s)). Si une quantité est donnée en "portion" ou de façon vague pour un ingrédient qui s'achète au poids (riz, pâtes, crevettes, viande…), convertis-la en grammes réalistes pour le nombre de personnes de la recette.
-4. Photo du plat : si le document contient une photo du plat fini pour une recette, indique la page (numérotée à partir de 1) dans "dishPhotoPage" et le rectangle de la photo [ymin, xmin, ymax, xmax] sur une échelle de 0 à 1000 de la page dans "dishPhotoBox". Sinon mets null pour les deux.
+4. Nutrition : uniquement les valeurs écrites dans le document, sinon null (n'estime jamais).
+5. Photo du plat : si le document contient une photo du plat fini pour une recette, indique la page (numérotée à partir de 1) dans "dishPhotoPage" et le rectangle de la photo [ymin, xmin, ymax, xmax] sur une échelle de 0 à 1000 de la page dans "dishPhotoBox". Sinon mets null pour les deux.
 
 Réponds STRICTEMENT avec un JSON valide de cette forme :
 {
@@ -36,7 +38,7 @@ Réponds STRICTEMENT avec un JSON valide de cette forme :
       "servingsBase": 4,
       "spiceLevel": "Doux" | "Moyen" | "Épicé",
       "utensils": ["Poêle"],
-      "nutrition": { "caloriesKcal": 650, "proteines": "24g", "glucides": "75g", "lipides": "28g" },
+      "nutrition": { "caloriesKcal": null, "proteines": null, "glucides": null, "lipides": null },
       "allergens": ["Gluten"],
       "dishPhotoPage": 1,
       "dishPhotoBox": [120, 100, 520, 900],
@@ -108,6 +110,7 @@ export async function POST(req: NextRequest) {
           .map((r: any) => ({
             ...r,
             servingsBase: Number(r.servingsBase) || DEFAULT_SERVINGS,
+            nutrition: cleanNutrition(r.nutrition),
             ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
             steps: Array.isArray(r.steps) ? r.steps : [],
             dishPhotoPage: Number.isInteger(r.dishPhotoPage) && r.dishPhotoPage > 0 ? r.dishPhotoPage : null,

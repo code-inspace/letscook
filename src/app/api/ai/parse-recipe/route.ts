@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clampDishBoxAboveTitle } from "@/features/ai/cropBoxes";
+import { cleanNutrition } from "@/features/ai/nutrition";
+import { callGeminiRace, GeminiError } from "@/lib/gemini";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -78,7 +81,9 @@ INSTRUCTIONS CRITIQUES :
    - Sur la photo du plat fini (recto) : Détecte les coordonnées [ymin, xmin, ymax, xmax] (échelle 0 à 1000) de l'assiette/bol ("mainDishCropBox") une fois la photo remise droite.
    - Sur la photo des étapes (verso) : Pour CHAQUE étape numérotée (Étape 1, 2, 3, 4, 5, 6...), identifie avec grande précision le rectangle [ymin, xmin, ymax, xmax] (échelle 0 à 1000) de la photo/illustration de l'étape correspondante ("stepCropBox") une fois la photo remise droite.
 
-5. FORMAT « CAPTURES D'ÉCRAN DE SITE KIT-REPAS » (Quitoque, HelloFresh, Cook... : 1 à plusieurs longues captures verticales de page web, dans n'importe quel ordre) :
+5. NUTRITION : ne remplis QUE les valeurs réellement visibles sur les photos (ex. seulement calories et protéines si c'est tout ce qui est affiché). Toute valeur absente vaut null : n'estime et n'invente jamais une valeur nutritionnelle.
+
+6. FORMAT « CAPTURES D'ÉCRAN DE SITE KIT-REPAS » (Quitoque, HelloFresh, Cook... : 1 à plusieurs longues captures verticales de page web, dans n'importe quel ordre) :
    - Une capture peut contenir la photo héros du plat avec le titre incrusté dessus, les infos (Total, Calories, Protéines, Difficulté), la description, les allergènes, les ingrédients, les ustensiles et les valeurs nutritionnelles ; une autre, les « Instructions » avec une grille de photos numérotées sur 2 colonnes. Croise TOUTES les photos pour construire UNE seule recette.
    - Ignore tout le chrome d'interface : bouton « Enregistrer », croix de fermeture, « Origine : UE FR », labels de pays, bandeaux.
    - Difficulté : « Facile » → "Easy", « Intermédiaire » → "Medium", « Difficile » → "Hard". prepTimeMinutes = durée « Total ».
@@ -87,7 +92,7 @@ INSTRUCTIONS CRITIQUES :
    - Section « Non inclus dans la livraison » (bouillon, huile d'olive, poivre et sel...) : ajoute ces éléments dans "ingredients" avec amount 0 et unit "" (« Poivre et sel » → deux ingrédients « Poivre » et « Sel »). Ne les oublie pas.
    - Les étapes contiennent des quantités « par personne » (ex. « ½ cc de thym séché par personne ») : recopie-les dans la description sans les convertir.
    - Étapes : une étape par vignette numérotée ; title = le titre de la vignette (« C'est parti ! », « Au tour des champignons »...), description = ses puces recopiées fidèlement, séparées par des retours à la ligne. stepPhotoIndex = index de la capture qui contient la grille, stepCropBox = rectangle de la PHOTO seule de la vignette (sans le numéro ni le texte en dessous).
-   - Photo du plat : frontPhotoIndex = capture qui contient la photo héros ; mainDishCropBox = rectangle du plat dans cette photo, SANS le titre ni le sous-titre incrustés (reste sur l'assiette).
+   - Photo du plat : frontPhotoIndex = capture qui contient la photo héros ; mainDishCropBox = rectangle du plat dans cette photo, SANS le titre ni le sous-titre incrustés (reste sur l'assiette). Si un titre/sous-titre est incrusté sur la photo, donne aussi son rectangle dans "heroTitleBox" [ymin, xmin, ymax, xmax] (même échelle, même capture) ; sinon null.
    - Les captures sont droites : photoOrientations = 0 pour chacune.
 
 Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
@@ -97,22 +102,22 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
   "category": "Main Dishes" | "Soups & Stews" | "Appetizers" | "Pastas" | "Desserts" | "Salads" | "Breakfast" | "Sides",
   "prepTimeMinutes": 35,
   "difficulty": "Easy" | "Medium" | "Hard",
-  "rating": 5.0,
   "servingsBase": 4,
   "spiceLevel": "Épicé" | "Doux" | "Moyen",
   "utensils": ["Wok", "Casserole"],
   "nutrition": {
-    "caloriesKcal": 650,
-    "proteines": "24g",
-    "glucides": "75g",
-    "lipides": "28g",
-    "fibres": "6g",
-    "sel": "1.2g"
+    "caloriesKcal": null,
+    "proteines": null,
+    "glucides": null,
+    "lipides": null,
+    "fibres": null,
+    "sel": null
   },
   "allergens": ["Sésame", "Soja"],
   "photoOrientations": [0, 90],
   "frontPhotoIndex": 0,
   "mainDishCropBox": [120, 100, 820, 880],
+  "heroTitleBox": null,
   "ingredients": [
     { "id": "ing_1", "name": "Nom exact ingrédient", "amount": 2, "unit": "pièce(s)" }
   ],
@@ -130,84 +135,62 @@ Réponds STRICTEMENT avec un JSON valide respectant cette structure exacte :
   ]
 }`;
 
-    // Google Gemini Flash Multimodal Vision
-    if (geminiApiKey) {
-      const candidateModels = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.5-flash",
-        "gemini-flash-lite-latest",
-        "gemini-3.8-flash",
-        "gemini-flash-latest",
-      ];
-
-      for (const model of candidateModels) {
-        try {
-          log(`Appel de l'IA Google Gemini avec le modèle ${model}...`);
-          const geminiParts: any[] = [{ text: systemPrompt }];
-          imagesData.forEach((img) => {
-            geminiParts.push({
-              inline_data: {
-                mime_type: img.mimeType,
-                data: img.base64,
-              },
-            });
-          });
-
-          const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
-
-          const geminiRes = await fetch(geminiEndpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: geminiParts }],
-              generationConfig: {
-                response_mime_type: "application/json",
-                temperature: 0.1,
-              },
-            }),
-            signal: AbortSignal.timeout(25000),
-          });
-
-          log(`Réponse HTTP Gemini (${model}): status ${geminiRes.status}`);
-
-          if (geminiRes.ok) {
-            const geminiData = await geminiRes.json();
-            const rawText =
-              geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (rawText) {
-              const cleanedText = rawText
-                .replace(/```json/g, "")
-                .replace(/```/g, "")
-                .trim();
-              const parsed = JSON.parse(cleanedText);
-              log(`Succès OCR Gemini (${model}) : Plat "${parsed.title}" avec ${parsed.ingredients?.length || 0} ingrédients et ${parsed.steps?.length || 0} étapes.`);
-              return NextResponse.json({
-                recipe: parsed,
-                logs: serverLogs,
-                provider: `Google Gemini Vision (${model})`,
-              });
-            } else {
-              log(`Réponse Gemini (${model}) reçue sans texte exploitable.`);
-            }
-          } else {
-            const errText = await geminiRes.text();
-            log(`Erreur Gemini HTTP ${geminiRes.status}: ${errText.substring(0, 200)}`);
-          }
-        } catch (geminiError: any) {
-          log(`Exception Gemini (${model}): ${geminiError?.message || geminiError}`);
-        }
-      }
+    if (!geminiApiKey) {
+      return NextResponse.json(
+        { error: "Clé API Gemini manquante sur le serveur.", logs: serverLogs },
+        { status: 500 }
+      );
     }
 
-    // No mock/fake data fallback: Return honest error with logs if OCR failed
-    log("ÉCHEC : Aucun modèle de vision n'a pu extraire la recette.");
-    return NextResponse.json(
-      {
-        error: "L'analyse visuelle par IA a échoué. Veuillez vérifier la lisibilité des photos et la clé API Gemini.",
+    const parts: unknown[] = [{ text: systemPrompt }];
+    imagesData.forEach((img) => {
+      parts.push({ inline_data: { mime_type: img.mimeType, data: img.base64 } });
+    });
+
+    try {
+      // 2 models race, then fallbacks; always answers before the 60 s hosting limit
+      const { parsed, model } = await callGeminiRace({
+        apiKey: geminiApiKey,
+        models: [
+          "gemini-flash-lite-latest",
+          "gemini-3.5-flash-lite",
+          "gemini-3.5-flash",
+          "gemini-3.8-flash",
+          "gemini-flash-latest",
+        ],
+        parts,
+        budgetMs: 54_000,
+        parallel: 2,
+        log,
+        accept: (p) => {
+          if (!p || typeof p.title !== "string") throw new Error("JSON sans titre");
+        },
+      });
+      parsed.mainDishCropBox =
+        clampDishBoxAboveTitle(parsed.mainDishCropBox, parsed.heroTitleBox) ?? parsed.mainDishCropBox;
+      parsed.nutrition = cleanNutrition(parsed.nutrition);
+      log(
+        `Succès OCR Gemini (${model}) : Plat "${parsed.title}" avec ${parsed.ingredients?.length || 0} ingrédients et ${parsed.steps?.length || 0} étapes.`
+      );
+      return NextResponse.json({
+        recipe: parsed,
         logs: serverLogs,
-      },
-      { status: 502 }
-    );
+        provider: `Google Gemini Vision (${model})`,
+      });
+    } catch (err: any) {
+      // No mock/fake data fallback: return an honest, readable error
+      log(`ÉCHEC : ${err?.message || err}`);
+      return NextResponse.json(
+        {
+          error:
+            err instanceof GeminiError
+              ? err.message
+              : "L'analyse visuelle par IA a échoué. Vérifiez la lisibilité des photos.",
+          logs: serverLogs,
+        },
+        { status: err instanceof GeminiError && err.kind !== "failed" ? 503 : 502 }
+      );
+    }
   } catch (err: any) {
     log(`FATAL API ERROR: ${err?.message || err}`);
     return NextResponse.json(

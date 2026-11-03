@@ -246,6 +246,18 @@ export async function cropAndRotateRegion(
 /**
  * Intelligent Recipe Photos Parser (handles 1 or 2 photos: Recto & Verso)
  */
+/** Human-readable message for a failed /api/ai/* call (timeouts, overload, crashes). */
+export function describeServerFailure(status: number, detail: string = ""): string {
+  if (status === 504 || /TIMEOUT/i.test(detail)) {
+    return "L'analyse a pris trop de temps et a été interrompue. Réessayez dans un instant.";
+  }
+  if (status === 503 || status === 429) {
+    return "L'IA est surchargée en ce moment. Réessayez dans quelques minutes.";
+  }
+  if (status === 413) return "Photos trop lourdes pour être envoyées.";
+  return `Erreur serveur (HTTP ${status}). Réessayez dans un instant.`;
+}
+
 export async function parseRecipeAlbumWithAI(
   files: File[],
   userId: string,
@@ -323,7 +335,7 @@ export async function parseRecipeAlbumWithAI(
       data = JSON.parse(responseText);
     } catch {
       logClient(`ERREUR: Réponse non-JSON du serveur: ${responseText.substring(0, 120)}`);
-      throw new Error(`Erreur serveur HTTP ${response.status}`);
+      throw new Error(describeServerFailure(response.status, responseText));
     }
 
     if (Array.isArray(data?.logs)) {
@@ -331,8 +343,13 @@ export async function parseRecipeAlbumWithAI(
     }
 
     if (!response.ok || !data?.recipe) {
-      logClient(`ERREUR Serveur: ${data?.error || "Réponse invalide"}`);
-      const err = new Error(data?.error || "Erreur de traitement IA");
+      // Our API sends { error: "message" }; the hosting platform sends { error: { code, message } }
+      const message =
+        typeof data?.error === "string"
+          ? data.error
+          : describeServerFailure(response.status, data?.error?.code || data?.error?.message || "");
+      logClient(`ERREUR Serveur: ${message}`);
+      const err = new Error(message);
       (err as any).logs = logs;
       throw err;
     }

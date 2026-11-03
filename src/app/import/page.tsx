@@ -402,7 +402,10 @@ export default function AIImportPage() {
         addLog(`[Recette ${i + 1}/${updatedPairs.length}] Succès : "${result.recipe.title}" enregistrée.`);
       } catch (err: any) {
         console.error(`Erreur sur la recette ${i + 1}:`, err);
-        const errMsg = err?.message || "Échec de l'analyse visuelle";
+        const errMsg =
+          typeof err?.message === "string" && err.message && err.message !== "[object Object]"
+            ? err.message
+            : "Échec de l'analyse visuelle";
         pair.status = "error";
         pair.error = errMsg;
         pair.logs = err.logs;
