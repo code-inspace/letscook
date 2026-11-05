@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, Clock, ArrowRight, Star, ChefHat, ChevronLeft, X } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { useRecipes } from "@/features/recipes/actions";
+import { searchRecipes } from "@/features/recipes/search";
+import { RECIPE_CATEGORIES } from "@/features/recipes/types";
 import { BottomNav } from "@/components/layout/BottomNav";
-import { categoryLabel } from "@/features/recipes/types";
 
 function SearchContent() {
   const router = useRouter();
@@ -25,15 +26,24 @@ function SearchContent() {
     }
   }, [searchParams]);
 
-  const filtered = recipes.filter((r) => {
-    if (!query) return true;
-    const q = query.toLowerCase().trim();
-    const titleMatch = r.title.toLowerCase().includes(q);
-    const ingMatch = r.ingredients?.some((ing) => ing.name.toLowerCase().includes(q));
-    const catMatch =
-      r.category?.toLowerCase().includes(q) || categoryLabel(r.category).toLowerCase().includes(q);
-    return titleMatch || ingMatch || catMatch;
-  });
+  const [maxMinutes, setMaxMinutes] = useState<number | null>(null);
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [category, setCategory] = useState("");
+  const [have, setHave] = useState("");
+  const [showHave, setShowHave] = useState(false);
+
+  const results = useMemo(
+    () => searchRecipes(recipes, { query, maxMinutes, onlyFavorites, category, have }),
+    [recipes, query, maxMinutes, onlyFavorites, category, have]
+  );
+  const filtered = results.map((r) => r.recipe);
+  const missingById = new Map(results.map((r) => [r.recipe.id, r.missing]));
+  const hasFilters = Boolean(query || maxMinutes || onlyFavorites || category || have.trim());
+
+  const chip = (active: boolean) =>
+    `px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap border transition-all cursor-pointer active:scale-95 ${
+      active ? "bg-[#181A20] text-white border-[#181A20]" : "bg-white text-slate-600 border-slate-200"
+    }`;
 
   return (
     <div className="flex flex-col min-h-[100dvh] sm:min-h-[812px] bg-[#F8F9FB] pb-32 relative">
@@ -47,7 +57,7 @@ function SearchContent() {
             <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
               Recherche
             </h1>
-            <span className="text-[10px] text-[#8E929E] font-medium">
+            <span className="text-[10px] text-[#6B7080] font-medium">
               Par nom ou ingrédient
             </span>
           </div>
@@ -68,7 +78,7 @@ function SearchContent() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Rechercher une recette, un ingrédient..."
-            className="w-full h-12 pl-10 pr-10 rounded-2xl bg-white text-xs text-[#181A20] placeholder:text-[#8E929E] outline-none focus:ring-2 focus:ring-[#5DB534]/30 border border-slate-200/80 shadow-2xs transition-all"
+            className="w-full h-12 pl-10 pr-10 rounded-2xl bg-white text-xs text-[#181A20] placeholder:text-[#6B7080] outline-none focus:ring-2 focus:ring-[#5DB534]/30 border border-slate-200/80 shadow-2xs transition-all"
           />
           {query && (
             <button
@@ -81,19 +91,94 @@ function SearchContent() {
           )}
         </div>
 
+        {/* Filters */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-5 px-5 py-0.5">
+          <button
+            type="button"
+            onClick={() => setShowHave((v) => !v)}
+            aria-pressed={showHave || Boolean(have.trim())}
+            className={chip(showHave || Boolean(have.trim()))}
+          >
+            🧺 Avec ce que j&apos;ai
+          </button>
+          {[20, 30, 45].map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMaxMinutes(maxMinutes === m ? null : m)}
+              aria-pressed={maxMinutes === m}
+              className={chip(maxMinutes === m)}
+            >
+              ≤ {m} min
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setOnlyFavorites((v) => !v)}
+            aria-pressed={onlyFavorites}
+            className={chip(onlyFavorites)}
+          >
+            ♥ Favoris
+          </button>
+          {RECIPE_CATEGORIES.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => setCategory(category === c.value ? "" : c.value)}
+              aria-pressed={category === c.value}
+              className={chip(category === c.value)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+
+        {(showHave || have.trim()) && (
+          <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/70 space-y-1.5">
+            <label htmlFor="have-input" className="block text-[11px] font-bold text-emerald-900">
+              Ingrédients que vous avez (séparés par des virgules)
+            </label>
+            <input
+              id="have-input"
+              type="text"
+              value={have}
+              onChange={(e) => setHave(e.target.value)}
+              placeholder="riz, poulet, oignon, crème…"
+              className="w-full h-10 px-3 rounded-xl bg-white text-xs border border-emerald-200 focus:outline-none focus:ring-2 focus:ring-[#5DB534]/30"
+            />
+            <p className="text-[10px] text-emerald-800">Sel, poivre, huile et eau sont considérés comme toujours là.</p>
+          </div>
+        )}
+
         {/* Results List */}
         <div className="flex flex-col gap-3 pt-2">
-          <div className="flex items-center justify-between text-xs font-bold text-[#8E929E] px-1">
+          <div className="flex items-center justify-between text-xs font-bold text-[#6B7080] px-1">
             <span>
-              {query ? `Résultats (${filtered.length})` : `Toutes vos recettes (${recipes.length})`}
+              {hasFilters ? `Résultats (${filtered.length})` : `Toutes vos recettes (${recipes.length})`}
             </span>
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setMaxMinutes(null);
+                  setOnlyFavorites(false);
+                  setCategory("");
+                  setHave("");
+                  setShowHave(false);
+                }}
+                className="text-[#5DB534] cursor-pointer"
+              >
+                Effacer les filtres
+              </button>
+            )}
           </div>
 
           {filtered.length === 0 ? (
             <div className="py-14 px-6 text-center bg-white rounded-3xl border border-dashed border-slate-200">
               <ChefHat className="w-10 h-10 text-slate-300 mx-auto mb-2" />
               <p className="text-xs font-bold text-[#181A20]">Aucune recette correspondante</p>
-              <p className="text-[11px] text-[#8E929E] mt-1">
+              <p className="text-[11px] text-[#6B7080] mt-1">
                 Essayez un autre mot-clé ou importez une nouvelle fiche.
               </p>
             </div>
@@ -121,7 +206,7 @@ function SearchContent() {
                     <span className="text-xs font-bold text-[#181A20] truncate max-w-[170px]">
                       {recipe.title}
                     </span>
-                    <div className="flex items-center gap-2 text-[10px] text-[#8E929E] mt-0.5">
+                    <div className="flex items-center gap-2 text-[10px] text-[#6B7080] mt-0.5">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3 text-emerald-600" />
                         {recipe.prepTimeMinutes}m
@@ -136,6 +221,17 @@ function SearchContent() {
                         </>
                       )}
                     </div>
+                    {missingById.get(recipe.id) && (
+                      <span
+                        className={`mt-1 text-[10px] font-bold truncate max-w-[200px] ${
+                          missingById.get(recipe.id)!.length === 0 ? "text-emerald-700" : "text-amber-700"
+                        }`}
+                      >
+                        {missingById.get(recipe.id)!.length === 0
+                          ? "✓ Vous avez tout"
+                          : `Il manque : ${missingById.get(recipe.id)!.join(", ")}`}
+                      </span>
+                    )}
                   </div>
                 </div>
 

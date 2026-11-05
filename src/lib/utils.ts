@@ -12,3 +12,14 @@ export function toDateKey(date: Date = new Date()): string {
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Back navigation that never dead-ends: when the page was opened directly
+ * (shared link, PWA launch), there is no history entry to go back to.
+ */
+export function goBack(router: { back: () => void; push: (href: string) => void }, fallback = "/"): void {
+  // (document.referrer is not updated by client-side navigations, so only the
+  // history length is a reliable signal here)
+  if (typeof window !== "undefined" && window.history.length > 1) router.back();
+  else router.push(fallback);
+}

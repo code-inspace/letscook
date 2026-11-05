@@ -1,4 +1,4 @@
-import { createUserListStore } from "./userStore";
+import { createUserListStore, useUserList } from "./userStore";
 
 /**
  * Pending remote writes that failed (offline, network error, Supabase error).
@@ -108,4 +108,10 @@ export function mergeWithPending<T extends { id: string; updatedAt?: string }>(
     if (upserts.has(item.id) || time(item.updatedAt) >= startedAt) merged.push(item);
   }
   return merged;
+}
+
+/** Live number of local changes not yet saved in Supabase (null until known). */
+export function usePendingChanges(userId: string | null | undefined): number | null {
+  const list = useUserList(outboxStore, userId);
+  return list ? list.length : null;
 }

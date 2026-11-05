@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Calendar, ShoppingBag, Heart, User } from "lucide-react";
+import { SyncStatus } from "./SyncStatus";
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -48,6 +49,10 @@ export function BottomNav() {
     >
       {/* Background with top transparent-to-white gradient */}
       <div className="absolute inset-0 -top-8 bg-gradient-to-t from-white via-white/95 to-transparent pointer-events-none" />
+
+      <div className="relative z-10 flex justify-center">
+        <SyncStatus />
+      </div>
 
       <div className="relative z-10 w-full flex items-center justify-around pointer-events-auto max-w-[360px] mx-auto px-4 pb-5 pt-2">
         {navItems.map((item) => {

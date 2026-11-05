@@ -528,13 +528,53 @@ export async function deleteShoppingItemFromList(item: ShoppingItem, userId: str
   await pushShoppingDelete(userId, item.id);
 }
 
-export async function clearCompletedShoppingItems(userId: string): Promise<void> {
-  if (!userId) return;
+/** Removes the purchased items; returns them so the action can be undone. */
+export async function clearCompletedShoppingItems(userId: string): Promise<ShoppingItem[]> {
+  if (!userId) return [];
   const checked = (await shoppingStore.load(userId)).filter((i) => i.checked);
-  if (checked.length === 0) return;
+  if (checked.length === 0) return [];
   excludeItems(checked, userId);
   await shoppingStore.update(userId, (list) => list.filter((i) => !i.checked));
   await Promise.all(checked.map((i) => pushShoppingDelete(userId, i.id)));
+  return checked;
+}
+
+/**
+ * Undo of a delete / "clear purchased": manual items are put back as they were,
+ * recipe items come back by lifting their exclusion (the list rebuilds them),
+ * then their checked state is restored.
+ */
+export async function restoreShoppingItems(items: ShoppingItem[], userId: string): Promise<void> {
+  if (!userId || items.length === 0) return;
+  const now = new Date().toISOString();
+
+  const custom = items.filter((i) => i.isCustom);
+  if (custom.length) {
+    await shoppingStore.update(userId, (list) => [
+      ...custom.map((i) => ({ ...i, updatedAt: now })),
+      ...list.filter((i) => !custom.some((c) => c.id === i.id)),
+    ]);
+    custom.forEach((i) => pushShoppingItem(userId, i.id));
+  }
+
+  const auto = items.filter((i) => !i.isCustom);
+  if (auto.length) {
+    const keys = new Set(auto.flatMap(exclusionKeysFor));
+    // Synchronous rebuild through the exclusion store subscription
+    saveStoredExcludedIngredients(
+      getStoredExcludedIngredients(userId).filter((k) => !keys.has(k)),
+      userId
+    );
+    rebuildShoppingList(userId);
+    createClient()
+      .from("shopping_exclusions")
+      .delete()
+      .eq("user_id", userId)
+      .in("key", [...keys])
+      .then(({ error }) => error && console.warn("shopping_exclusions delete error:", error));
+    const toCheck = auto.filter((i) => i.checked);
+    for (const i of toCheck) await toggleShoppingItemInDb(i.id, true, userId);
+  }
 }
 
 /**

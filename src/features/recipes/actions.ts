@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Recipe, DEFAULT_SERVINGS } from "./types";
 import { ingredientDisplayName, ingredientId } from "@/features/ingredients/canonical";
+import { applyImageMapping, recipeHasInlineImages, uploadInlineImages } from "@/lib/imageStorage";
 import { encryptText, decryptText, isEncrypted } from "@/lib/crypto/encryption";
 import { createClient } from "@/utils/supabase/client";
 import { categorizeIngredient } from "@/features/groceries/categorizer";
@@ -242,11 +243,24 @@ export function fetchRecipesFromDb(userId: string, force = false): Promise<Recip
 /** Pushes the local version of a recipe to Supabase (queued for retry on failure). */
 export async function pushRecipe(userId: string, recipeId: string): Promise<boolean> {
   await recipesStore.load(userId);
-  const recipe = getStoredRecipeById(recipeId, userId);
-  if (!recipe) {
+  if (!getStoredRecipeById(recipeId, userId)) {
     dequeue(userId, "recipe", recipeId);
     return true;
   }
+
+  // Base64 photos → Storage URLs (lighter rows, cache and sync). Kept inline if
+  // Storage is unavailable. The local copy is updated too, with a new updatedAt
+  // so other devices fetch the lighter version.
+  const mapping = await uploadInlineImages(userId, getStoredRecipeById(recipeId, userId)!);
+  if (mapping.size > 0) {
+    const now = new Date().toISOString();
+    await recipesStore.update(userId, (list) =>
+      list.map((r) => (r.id === recipeId ? { ...applyImageMapping(r, mapping), updatedAt: now } : r))
+    );
+  }
+
+  const recipe = getStoredRecipeById(recipeId, userId);
+  if (!recipe) return true;
   const supabase = createClient();
   const ok = await runRemote(userId, { kind: "recipe", op: "upsert", id: recipeId }, async () =>
     supabase.from("recipes").upsert([await recipeToRow(recipe, userId)], { onConflict: "id" })
@@ -358,4 +372,21 @@ export function useRecipes(userId: string | null | undefined): Recipe[] | null {
     return null;
   }
   return recipes;
+}
+
+/**
+ * Moves the base64 photos of a few existing recipes to Storage (called on each
+ * sync, so the whole library migrates progressively without a long first run).
+ */
+export async function migrateInlineImages(userId: string, maxRecipes = 3): Promise<number> {
+  const recipes = (await recipesStore.load(userId)).filter(recipeHasInlineImages).slice(0, maxRecipes);
+  let migrated = 0;
+  for (const r of recipes) {
+    const before = getStoredRecipeById(r.id, userId);
+    await pushRecipe(userId, r.id);
+    const after = getStoredRecipeById(r.id, userId);
+    if (before && after && !recipeHasInlineImages(after)) migrated++;
+    else break; // Storage unavailable / offline: try again on the next sync
+  }
+  return migrated;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -32,7 +32,7 @@ import {
   Star,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
-import { toDateKey } from "@/lib/utils";
+import { goBack, toDateKey } from "@/lib/utils";
 import {
   Recipe,
   IngredientItem,
@@ -59,6 +59,7 @@ import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutoc
 import { useReferenceServings } from "@/features/settings/referenceServings";
 import { ServingsPicker } from "@/components/planning/ServingsPicker";
 import { RecalibrateSheet } from "@/components/ingredients/RecalibrateSheet";
+import { useUsedIngredients } from "@/features/cooking/timers";
 
 const DIFFICULTIES: Array<"Easy" | "Medium" | "Hard"> = ["Easy", "Medium", "Hard"];
 
@@ -87,6 +88,12 @@ export default function RecipeDetailPage() {
   const shoppingItems = useShoppingItems(plannedMeal ? user?.id : null);
   const excludedKeys = useExcludedIngredients(plannedMeal ? user?.id : null);
 
+  const {
+    used: usedIngredients,
+    toggle: toggleUsedIngredient,
+    reset: resetUsedIngredients,
+  } = useUsedIngredients(recipeId);
+
   // Chosen by the user only: background refreshes must never reset it
   const [chosenServings, setChosenServings] = useState<number | null>(null);
   const servings = chosenServings ?? plannedMeal?.servings ?? DEFAULT_SERVINGS;
@@ -105,6 +112,14 @@ export default function RecipeDetailPage() {
   const [planServings, setPlanServings] = useState<number>(DEFAULT_SERVINGS);
   const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
   const [planSuccessToast, setPlanSuccessToast] = useState<string | null>(null);
+  // Errors as a non-blocking message (instead of alert())
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showError = (message: string) => {
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+    setErrorToast(message);
+    errorTimer.current = setTimeout(() => setErrorToast(null), 6000);
+  };
   // "ven. 17" while the plan button shows its "Planifié" confirmation
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null);
   const planConfirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,6 +151,16 @@ export default function RecipeDetailPage() {
 
   // Delete Confirmation Modal State
   const [isRecalibrateOpen, setIsRecalibrateOpen] = useState<boolean>(false);
+  // Opened right after an import (?imported=1)
+  const [justImported, setJustImported] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("imported") === "1") setJustImported(true);
+  }, []);
+  const dismissImported = () => {
+    setJustImported(false);
+    // Drop the flag so a reload / back navigation doesn't show the banner again
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+  };
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
@@ -154,7 +179,7 @@ export default function RecipeDetailPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-white">
         <p className="text-sm font-bold text-[#181A20]">Recette introuvable</p>
-        <p className="text-xs text-[#8E929E] mt-1">Cette recette n'existe pas ou a été supprimée.</p>
+        <p className="text-xs text-[#6B7080] mt-1">Cette recette n'existe pas ou a été supprimée.</p>
         <Link href="/" className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-xs font-bold text-[#181A20]">
           ← Retour à l'accueil
         </Link>
@@ -201,6 +226,7 @@ export default function RecipeDetailPage() {
       day: "numeric",
     });
     const showConfirmation = () => {
+      navigator.vibrate?.([10, 40, 20]);
       setPlanConfirmation(label);
       if (planConfirmationTimer.current) clearTimeout(planConfirmationTimer.current);
       planConfirmationTimer.current = setTimeout(() => setPlanConfirmation(null), 2800);
@@ -406,11 +432,11 @@ export default function RecipeDetailPage() {
         setPlanSuccessToast("Photo générée par IA et enregistrée avec succès !");
         setTimeout(() => setPlanSuccessToast(null), 3500);
       } else {
-        alert(data.error || "Impossible de générer l'image par IA.");
+        showError(data.error || "Impossible de générer l'image par IA.");
       }
     } catch (err: any) {
       console.error("handleQuickRegenerateMainPhoto error:", err);
-      alert("Erreur lors de la génération IA: " + (err?.message || "Échec réseau"));
+      showError("Génération impossible : " + (err?.message || "échec réseau"));
     } finally {
       setIsGeneratingMainImage(false);
     }
@@ -441,11 +467,11 @@ export default function RecipeDetailPage() {
       if (res.ok && data.imageUrl) {
         setEditImageUrl(data.imageUrl);
       } else {
-        alert(data.error || "Impossible de générer l'image par IA.");
+        showError(data.error || "Impossible de générer l'image par IA.");
       }
     } catch (err: any) {
       console.error("handleGenerateMainImageAI error:", err);
-      alert("Erreur IA: " + (err?.message || "Échec"));
+      showError("Génération impossible : " + (err?.message || "échec réseau"));
     } finally {
       setIsGeneratingMainImage(false);
     }
@@ -471,11 +497,11 @@ export default function RecipeDetailPage() {
       if (res.ok && data.imageUrl) {
         handleUpdateStep(stepIndex, "imageUrl", data.imageUrl);
       } else {
-        alert(data.error || "Impossible de générer l'image de cette étape par IA.");
+        showError(data.error || "Impossible de générer l'image de cette étape par IA.");
       }
     } catch (err: any) {
       console.error("handleGenerateStepImageAI error:", err);
-      alert("Erreur IA: " + (err?.message || "Échec"));
+      showError("Génération impossible : " + (err?.message || "échec réseau"));
     } finally {
       setGeneratingStepIdx(null);
     }
@@ -570,6 +596,24 @@ export default function RecipeDetailPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FB] pb-32">
       {/* Toast Notification */}
+      {errorToast && (
+        <div
+          role="alert"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] w-[90%] max-w-md bg-rose-600 text-white pl-4 pr-2 py-3 rounded-2xl shadow-xl flex items-start gap-3 animate-in fade-in slide-in-from-bottom-4"
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span className="text-xs font-bold leading-snug flex-1">{errorToast}</span>
+          <button
+            type="button"
+            onClick={() => setErrorToast(null)}
+            aria-label="Fermer"
+            className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center shrink-0 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Bottom status message: click-through, never covers the header */}
       {planSuccessToast && (
         <div
@@ -587,7 +631,7 @@ export default function RecipeDetailPage() {
       <header className="px-5 pt-7 pb-3.5 flex items-center justify-between z-20">
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => goBack(router)}
           className="w-10 h-10 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#181A20] shadow-sm border border-slate-100 active:scale-95 transition-all cursor-pointer"
           title="Retour"
         >
@@ -721,7 +765,7 @@ export default function RecipeDetailPage() {
         </h1>
 
         {recipe.subtitle && (
-          <p className="text-xs text-[#8E929E] font-medium mt-1 leading-relaxed">
+          <p className="text-xs text-[#6B7080] font-medium mt-1 leading-relaxed">
             {recipe.subtitle}
           </p>
         )}
@@ -757,21 +801,21 @@ export default function RecipeDetailPage() {
           <span className="text-sm font-extrabold text-[#181A20]">
             {recipe.prepTimeMinutes}m
           </span>
-          <span className="text-[10px] font-semibold text-[#8E929E] mt-0.5">Minutes</span>
+          <span className="text-[10px] font-semibold text-[#6B7080] mt-0.5">Minutes</span>
         </div>
 
         <div className="bg-white p-3 rounded-2xl border border-slate-100 shadow-2xs flex flex-col items-center justify-center text-center">
           <span className="text-sm font-extrabold text-[#181A20]">
             {recipe.steps?.length || 0}
           </span>
-          <span className="text-[10px] font-semibold text-[#8E929E] mt-0.5">Étapes</span>
+          <span className="text-[10px] font-semibold text-[#6B7080] mt-0.5">Étapes</span>
         </div>
 
         <div className="bg-white p-3 rounded-2xl border border-slate-100 shadow-2xs flex flex-col items-center justify-center text-center">
           <span className="text-sm font-extrabold text-[#181A20]">
             {difficultyLabel(recipe.difficulty)}
           </span>
-          <span className="text-[10px] font-semibold text-[#8E929E] mt-0.5">Difficulté</span>
+          <span className="text-[10px] font-semibold text-[#6B7080] mt-0.5">Difficulté</span>
         </div>
 
         <div className="bg-white p-3 rounded-2xl border border-slate-100 shadow-2xs flex flex-col items-center justify-center text-center">
@@ -796,7 +840,7 @@ export default function RecipeDetailPage() {
               </button>
             ))}
           </div>
-          <span className="text-[10px] font-semibold text-[#8E929E] mt-0.5">
+          <span className="text-[10px] font-semibold text-[#6B7080] mt-0.5">
             {recipe.rating > 0 ? "Ma note" : "Noter"}
           </span>
         </div>
@@ -808,7 +852,7 @@ export default function RecipeDetailPage() {
           <button
             onClick={() => setActiveTab("ingredients")}
             className={`text-sm font-bold transition-colors pb-1 relative cursor-pointer ${
-              activeTab === "ingredients" ? "text-[#181A20]" : "text-[#8E929E] hover:text-[#181A20]"
+              activeTab === "ingredients" ? "text-[#181A20]" : "text-[#6B7080] hover:text-[#181A20]"
             }`}
           >
             Ingrédients ({recipe.ingredients?.length || 0})
@@ -820,7 +864,7 @@ export default function RecipeDetailPage() {
           <button
             onClick={() => setActiveTab("steps")}
             className={`text-sm font-bold transition-colors pb-1 relative cursor-pointer ${
-              activeTab === "steps" ? "text-[#181A20]" : "text-[#8E929E] hover:text-[#181A20]"
+              activeTab === "steps" ? "text-[#181A20]" : "text-[#6B7080] hover:text-[#181A20]"
             }`}
           >
             Étapes ({recipe.steps?.length || 0})
@@ -833,7 +877,7 @@ export default function RecipeDetailPage() {
             <button
               onClick={() => setActiveTab("nutrition")}
               className={`text-sm font-bold transition-colors pb-1 relative cursor-pointer ${
-                activeTab === "nutrition" ? "text-[#181A20]" : "text-[#8E929E] hover:text-[#181A20]"
+                activeTab === "nutrition" ? "text-[#181A20]" : "text-[#6B7080] hover:text-[#181A20]"
               }`}
             >
               Nutrition
@@ -897,6 +941,50 @@ export default function RecipeDetailPage() {
         </div>
       )}
 
+      {/* Just imported: offer the next useful actions right away */}
+      {justImported && (
+        <div className="mx-6 mt-4 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/70 space-y-2.5 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-extrabold text-emerald-900">
+              Recette importée ! Vérifiez les quantités, puis planifiez-la.
+            </p>
+            <button
+              type="button"
+              onClick={dismissImported}
+              aria-label="Fermer"
+              className="w-6 h-6 rounded-full bg-white/70 flex items-center justify-center text-emerald-700 shrink-0 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                dismissImported();
+                setActiveTab("ingredients");
+                setIsRecalibrateOpen(true);
+              }}
+              className="flex-1 py-2.5 rounded-xl bg-white border border-emerald-200 text-[#5DB534] text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Recalibrer
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                dismissImported();
+                openPlanModal();
+              }}
+              className="flex-1 py-2.5 rounded-xl bg-[#5DB534] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+            >
+              <CalendarIcon className="w-3.5 h-3.5" />
+              Planifier
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* AI recalibration of quantities / units */}
       {activeTab === "ingredients" && recipe.ingredients.length > 0 && (
         <div className="px-6 mt-3">
@@ -937,6 +1025,20 @@ export default function RecipeDetailPage() {
                 </div>
               );
             })()}
+            {recipe.ingredients && recipe.ingredients.length > 0 && (
+              <div className="flex items-center justify-between px-1 text-[11px] text-[#6B7080]">
+                <span>Touchez un ingrédient une fois ajouté</span>
+                {usedIngredients.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetUsedIngredients}
+                    className="font-bold text-[#5DB534] cursor-pointer"
+                  >
+                    Tout décocher ({usedIngredients.size})
+                  </button>
+                )}
+              </div>
+            )}
             {recipe.ingredients && recipe.ingredients.length > 0 ? (
               recipe.ingredients.map((ing, idx) => {
                 const availability = plannedMeal
@@ -947,23 +1049,40 @@ export default function RecipeDetailPage() {
                     ? Math.round(ing.amount * scaleFactor * 100) / 100
                     : ing.amount;
 
+                const isUsed = usedIngredients.has(idx);
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={ing.id || idx}
-                    className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 hover:border-slate-200 transition-colors"
+                    onClick={() => {
+                      navigator.vibrate?.(8);
+                      toggleUsedIngredient(idx);
+                    }}
+                    aria-pressed={isUsed}
+                    className={`w-full text-left p-3.5 rounded-2xl border shadow-2xs flex items-center justify-between gap-3 transition-all cursor-pointer active:scale-[0.99] ${
+                      isUsed ? "bg-slate-50 border-slate-100 opacity-60" : "bg-white border-slate-100 hover:border-slate-200"
+                    }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          availability === "missing" ? "bg-amber-400" : "bg-[#5DB534]"
+                        className={`w-5 h-5 rounded-full shrink-0 flex items-center justify-center border-2 transition-colors ${
+                          isUsed
+                            ? "bg-[#5DB534] border-[#5DB534] text-white"
+                            : availability === "missing"
+                            ? "border-amber-400"
+                            : "border-[#5DB534]/60"
                         }`}
-                      />
-                      <span className="text-xs font-bold text-[#181A20] truncate">
+                      >
+                        {isUsed && <Check className="w-3 h-3" strokeWidth={3} />}
+                      </div>
+                      <span
+                        className={`text-xs font-bold text-[#181A20] truncate ${isUsed ? "line-through decoration-2" : ""}`}
+                      >
                         {ing.name}
                       </span>
                       {availability !== "unknown" && (
                         <span
-                          className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shrink-0 ${
+                          className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shrink-0 ${
                             availability === "have"
                               ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
                               : "bg-amber-50 text-amber-700 border border-amber-200/60"
@@ -980,7 +1099,7 @@ export default function RecipeDetailPage() {
                         {ing.unit || ""}
                       </span>
                     )}
-                  </div>
+                  </button>
                 );
               })
             ) : (
@@ -1043,25 +1162,25 @@ export default function RecipeDetailPage() {
               <span className="text-xl font-extrabold text-[#181A20]">
                 {recipe.nutrition.caloriesKcal || "--"}
               </span>
-              <span className="text-xs text-[#8E929E] block mt-0.5">Calories (kcal)</span>
+              <span className="text-xs text-[#6B7080] block mt-0.5">Calories (kcal)</span>
             </div>
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs text-center">
               <span className="text-xl font-extrabold text-[#181A20]">
                 {recipe.nutrition.proteines || "--"}
               </span>
-              <span className="text-xs text-[#8E929E] block mt-0.5">Protéines</span>
+              <span className="text-xs text-[#6B7080] block mt-0.5">Protéines</span>
             </div>
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs text-center">
               <span className="text-xl font-extrabold text-[#181A20]">
                 {recipe.nutrition.glucides || "--"}
               </span>
-              <span className="text-xs text-[#8E929E] block mt-0.5">Glucides</span>
+              <span className="text-xs text-[#6B7080] block mt-0.5">Glucides</span>
             </div>
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-2xs text-center">
               <span className="text-xl font-extrabold text-[#181A20]">
                 {recipe.nutrition.lipides || "--"}
               </span>
-              <span className="text-xs text-[#8E929E] block mt-0.5">Lipides</span>
+              <span className="text-xs text-[#6B7080] block mt-0.5">Lipides</span>
             </div>
           </div>
         )}

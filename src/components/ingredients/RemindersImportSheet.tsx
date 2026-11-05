@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ClipboardPaste, Check, ChevronDown, Loader2, Play, X } from "lucide-react";
+import { SHEET_GRABBER_CLASS, useSheetDrag } from "@/components/ui/useSheetDrag";
 import { ShoppingItem } from "@/features/groceries/types";
 import {
   parseRemindersText,
@@ -33,6 +34,7 @@ export function RemindersImportSheet({
   onClose,
   onImport,
 }: RemindersImportSheetProps) {
+  const { handleProps, panelStyle } = useSheetDrag(onClose);
   const [parsed, setParsed] = useState<ParsedReminder[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [manualText, setManualText] = useState("");
@@ -92,14 +94,18 @@ export function RemindersImportSheet({
         aria-modal="true"
         aria-labelledby="reminders-title"
         className="w-full max-w-md bg-white rounded-t-[32px] sm:rounded-[32px] p-5 shadow-2xl flex flex-col max-h-[88vh] animate-in slide-in-from-bottom-6 text-[#181A20]"
+        style={panelStyle}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Swipe down on the handle / header to close */}
+        <div {...handleProps} className="-mt-2 pt-1 cursor-grab">
+          <div className={SHEET_GRABBER_CLASS} aria-hidden="true" />
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <h3 id="reminders-title" className="text-base font-extrabold">
               Importer depuis Rappels
             </h3>
-            <p className="text-[11px] text-[#8E929E] mt-0.5">
+            <p className="text-[11px] text-[#6B7080] mt-0.5">
               Récupère les articles non cochés de votre liste « Courses »
             </p>
           </div>
@@ -111,6 +117,7 @@ export function RemindersImportSheet({
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
         </div>
 
         <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-3">

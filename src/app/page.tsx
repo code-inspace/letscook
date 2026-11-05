@@ -129,7 +129,7 @@ export default function HomePage() {
         <button
           type="button"
           onClick={() => router.push("/search")}
-          className="w-full h-11 pl-4 pr-4 rounded-2xl bg-[#F4F6F5] hover:bg-[#ECEEED] text-xs text-[#8E929E] flex items-center justify-between border border-slate-100/80 shadow-2xs active:scale-[0.99] transition-all cursor-pointer"
+          className="w-full h-11 pl-4 pr-4 rounded-2xl bg-[#F4F6F5] hover:bg-[#ECEEED] text-xs text-[#6B7080] flex items-center justify-between border border-slate-100/80 shadow-2xs active:scale-[0.99] transition-all cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
             <Search className="w-4 h-4 text-slate-400" />
@@ -154,7 +154,7 @@ export default function HomePage() {
                 className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                   isSelected
                     ? "bg-[#181A20] text-white shadow-xs"
-                    : "bg-[#F4F6F5] text-[#8E929E] hover:text-[#181A20] hover:bg-slate-200/70"
+                    : "bg-[#F4F6F5] text-[#6B7080] hover:text-[#181A20] hover:bg-slate-200/70"
                 }`}
               >
                 {cat.name}
@@ -189,7 +189,7 @@ export default function HomePage() {
             <h3 className="text-base font-extrabold text-[#181A20]">
               Votre carnet est vide
             </h3>
-            <p className="text-xs text-[#8E929E] mt-1 max-w-xs leading-relaxed">
+            <p className="text-xs text-[#6B7080] mt-1 max-w-xs leading-relaxed">
               Prenez en photo vos fiches recettes (HelloFresh, Quitoque ou livres). L'IA extrait automatiquement chaque étape et ingrédient !
             </p>
 
@@ -204,7 +204,7 @@ export default function HomePage() {
         ) : filteredRecipes.length === 0 ? (
           /* No filter match */
           <div className="py-12 text-center">
-            <p className="text-xs text-[#8E929E]">
+            <p className="text-xs text-[#6B7080]">
               Aucune recette trouvée pour cette catégorie.
             </p>
           </div>
@@ -240,7 +240,7 @@ export default function HomePage() {
                       <p className="text-xs font-bold text-[#181A20]">
                         Aucun repas planifié
                       </p>
-                      <p className="text-[10px] text-[#8E929E]">
+                      <p className="text-[10px] text-[#6B7080]">
                         Planifiez vos recettes pour générer votre liste de courses
                       </p>
                     </div>
@@ -277,7 +277,7 @@ export default function HomePage() {
                           <span className="text-xs font-bold text-[#181A20] truncate">
                             {plan.recipeTitle}
                           </span>
-                          <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50 mt-1 inline-block truncate">
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/50 mt-1 inline-block truncate">
                             {formatMealPlanDateBadge(plan.date)}
                           </span>
                         </div>
@@ -315,7 +315,7 @@ export default function HomePage() {
                           <span className="text-xs font-bold text-[#181A20] truncate max-w-[180px]">
                             {recipe.title}
                           </span>
-                          <div className="flex items-center gap-2 text-[10px] text-[#8E929E] mt-0.5">
+                          <div className="flex items-center gap-2 text-[10px] text-[#6B7080] mt-0.5">
                             <span>{recipe.prepTimeMinutes}m</span>
                             <span>•</span>
                             <span>{recipe.ingredients?.length || 0} ingr.</span>

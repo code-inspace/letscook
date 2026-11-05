@@ -27,7 +27,7 @@ export default function FavoritesPage() {
             <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
               Mes Favoris
             </h1>
-            <span className="text-[10px] text-[#8E929E] font-medium">
+            <span className="text-[10px] text-[#6B7080] font-medium">
               {favoriteRecipes.length} recette{favoriteRecipes.length > 1 ? "s" : ""} coup de cœur
             </span>
           </div>
@@ -42,7 +42,7 @@ export default function FavoritesPage() {
         {isFetching ? (
           <div className="py-16 text-center">
             <div className="w-7 h-7 border-2 border-[#5DB534] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-            <p className="text-xs text-[#8E929E]">Chargement de vos favoris...</p>
+            <p className="text-xs text-[#6B7080]">Chargement de vos favoris...</p>
           </div>
         ) : favoriteRecipes.length === 0 ? (
           <div className="py-16 text-center bg-white rounded-3xl p-6 border border-dashed border-slate-200">
@@ -50,7 +50,7 @@ export default function FavoritesPage() {
             <p className="text-xs font-bold text-[#181A20]">
               Aucune recette en favoris
             </p>
-            <p className="text-[11px] text-[#8E929E] mt-1">
+            <p className="text-[11px] text-[#6B7080] mt-1">
               Appuyez sur le cœur sur une fiche recette pour l'ajouter ici.
             </p>
           </div>
@@ -78,7 +78,7 @@ export default function FavoritesPage() {
                   <span className="text-xs font-bold text-[#181A20] truncate max-w-[170px]">
                     {recipe.title}
                   </span>
-                  <div className="flex items-center gap-2 text-[10px] text-[#8E929E] mt-0.5">
+                  <div className="flex items-center gap-2 text-[10px] text-[#6B7080] mt-0.5">
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3 text-emerald-600" />
                       {recipe.prepTimeMinutes}m

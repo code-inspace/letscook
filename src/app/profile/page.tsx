@@ -66,7 +66,7 @@ export default function ProfilePage() {
             <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
               Mon Profil
             </h1>
-            <span className="text-[10px] text-[#8E929E] font-medium">
+            <span className="text-[10px] text-[#6B7080] font-medium">
               Paramètres et compte
             </span>
           </div>
@@ -91,7 +91,7 @@ export default function ProfilePage() {
 
           <div className="flex flex-col items-start gap-1">
             <span className="text-base font-extrabold text-[#181A20]">{name}</span>
-            {email && <span className="text-xs text-[#8E929E]">{email}</span>}
+            {email && <span className="text-xs text-[#6B7080]">{email}</span>}
             <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-[10px] font-bold text-emerald-800 mt-0.5">
               Plan {plan === "Basic" ? "Gratuit" : "Pro"}
             </span>
@@ -103,13 +103,13 @@ export default function ProfilePage() {
           <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center text-center">
             <ChefHat className="w-5 h-5 text-[#5DB534] mb-1" />
             <span className="text-lg font-extrabold text-[#181A20]">{recipesCount}</span>
-            <span className="text-[11px] text-[#8E929E]">Recettes sauvegardées</span>
+            <span className="text-[11px] text-[#6B7080]">Recettes sauvegardées</span>
           </div>
 
           <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col items-center justify-center text-center">
             <ShieldCheck className="w-5 h-5 text-emerald-600 mb-1" />
             <span className="text-xs font-bold text-emerald-700">Sauvegarde cloud</span>
-            <span className="text-[11px] text-[#8E929E]">Privée & synchronisée</span>
+            <span className="text-[11px] text-[#6B7080]">Privée & synchronisée</span>
           </div>
         </div>
 
@@ -122,7 +122,7 @@ export default function ProfilePage() {
               </div>
               <div className="flex flex-col text-left min-w-0">
                 <span className="text-xs font-extrabold text-[#181A20]">Portions de référence</span>
-                <span className="text-[10px] text-[#8E929E]">
+                <span className="text-[10px] text-[#6B7080]">
                   Proposé en raccourci sur les recettes et le planning
                 </span>
               </div>

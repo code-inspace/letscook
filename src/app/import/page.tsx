@@ -165,7 +165,7 @@ export default function AIImportPage() {
       setSavedUrlSuccess(true);
       addLog(`Recette "${saved.title}" enregistrée en base de données avec succès.`);
       setTimeout(() => {
-        router.push(`/recipes/${saved.id}`);
+        router.push(`/recipes/${saved.id}?imported=1`);
       }, 1000);
     } catch (err: any) {
       console.error("handleSaveParsedUrlRecipe error:", err);
@@ -266,7 +266,7 @@ export default function AIImportPage() {
       setSavedVideoSuccess(true);
       addLog(`Recette vidéo "${saved.title}" enregistrée en base de données avec succès.`);
       setTimeout(() => {
-        router.push(`/recipes/${saved.id}`);
+        router.push(`/recipes/${saved.id}?imported=1`);
       }, 1000);
     } catch (err: any) {
       console.error("handleSaveParsedVideoRecipe error:", err);
@@ -452,7 +452,7 @@ export default function AIImportPage() {
             <Sparkles className="w-4 h-4 text-[#5DB534]" />
             <span>Importer une Recette</span>
           </h1>
-          <span className="text-[10px] text-[#8E929E] font-medium">
+          <span className="text-[10px] text-[#6B7080] font-medium">
             Liens, Photos ou Vidéos
           </span>
         </div>
@@ -530,7 +530,7 @@ export default function AIImportPage() {
                   <LinkIcon className="w-4 h-4 text-[#5DB534]" />
                   <span>Collez le lien d'une recette ou d'un Reel / TikTok</span>
                 </h3>
-                <p className="text-xs text-[#8E929E] mt-1 leading-relaxed">
+                <p className="text-xs text-[#6B7080] mt-1 leading-relaxed">
                   Supporte <strong>Instagram Reels</strong>, <strong>TikTok</strong>, <strong>YouTube Shorts</strong>, ainsi que <strong>Marmiton, 750g, CuisineAZ</strong>, HelloFresh et blogs culinaires.
                 </p>
               </div>
@@ -728,7 +728,7 @@ export default function AIImportPage() {
           <div className="space-y-4">
             {/* Description card */}
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
-              <p className="text-xs text-[#8E929E] leading-relaxed">
+              <p className="text-xs text-[#6B7080] leading-relaxed">
                 Déposez jusqu'à <strong>100 photos</strong> de fiches recettes. Le système associe automatiquement chaque <strong>Recto (Plat)</strong> avec son <strong>Verso (Étapes)</strong>. Vous pouvez réajuster l'ordre ou inverser les faces avant de lancer l'analyse complète par lot.
               </p>
             </div>
@@ -759,7 +759,7 @@ export default function AIImportPage() {
                 <h3 className="text-base font-extrabold text-[#181A20]">
                   Déposez toutes vos photos ici
                 </h3>
-                <p className="text-xs text-[#8E929E] mt-1.5 max-w-sm">
+                <p className="text-xs text-[#6B7080] mt-1.5 max-w-sm">
                   Glissez-déposez jusqu'à 100 photos à la fois ou cliquez pour sélectionner vos fichiers.
                 </p>
 
@@ -780,7 +780,7 @@ export default function AIImportPage() {
                     <span className="text-xs font-bold text-[#181A20] block">
                       {pairs.length} recette(s) détectée(s) ({totalPhotosCount} photos)
                     </span>
-                    <span className="text-[11px] text-[#8E929E]">
+                    <span className="text-[11px] text-[#6B7080]">
                       {successfulCount} analysée(s) • {pendingCount} restante(s)
                     </span>
                   </div>
@@ -904,7 +904,7 @@ export default function AIImportPage() {
                               Recto manquant
                             </div>
                           )}
-                          <span className="absolute bottom-1.5 left-1.5 bg-black/60 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                          <span className="absolute bottom-1.5 left-1.5 bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">
                             Recto (Plat)
                           </span>
                         </div>
@@ -923,7 +923,7 @@ export default function AIImportPage() {
                               <span className="text-[8px] text-slate-300">(1 seule face)</span>
                             </div>
                           )}
-                          <span className="absolute bottom-1.5 left-1.5 bg-black/60 backdrop-blur-xs text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                          <span className="absolute bottom-1.5 left-1.5 bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">
                             Verso (Étapes)
                           </span>
                         </div>
@@ -974,7 +974,7 @@ export default function AIImportPage() {
                         ? globalProgressMessage || "Traitement du lot..."
                         : `${pendingCount} recette(s) prête(s) à être analysée(s)`}
                     </span>
-                    <span className="text-[11px] text-[#8E929E]">
+                    <span className="text-[11px] text-[#6B7080]">
                       Gemini Multimodal Vision • Extraction OCR & Recadrage Auto
                     </span>
                   </div>
@@ -1011,7 +1011,7 @@ export default function AIImportPage() {
           <div className="space-y-4">
             {/* Description card */}
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
-              <p className="text-xs text-[#8E929E] leading-relaxed">
+              <p className="text-xs text-[#6B7080] leading-relaxed">
                 Importez directement un <strong>fichier vidéo</strong> (Reel Instagram téléchargé, TikTok, vidéo de cuisine enregistrée). L'IA <strong>Gemini 2.5 Flash</strong> analyse simultanément l'<strong>image</strong>, les <strong>gestes du chef</strong>, le <strong>texte à l'écran</strong> et la <strong>voix off</strong> pour construire la fiche recette complète calibrée pour 6 personnes.
               </p>
             </div>
@@ -1037,7 +1037,7 @@ export default function AIImportPage() {
                 <h3 className="text-base font-extrabold text-[#181A20]">
                   Déposez votre vidéo de recette ici
                 </h3>
-                <p className="text-xs text-[#8E929E] mt-1.5 max-w-sm">
+                <p className="text-xs text-[#6B7080] mt-1.5 max-w-sm">
                   Formats supportés : MP4, MOV, WEBM. Analyse visuelle et sonore par IA multimodale.
                 </p>
 
@@ -1061,7 +1061,7 @@ export default function AIImportPage() {
                       <h4 className="text-xs font-bold text-[#181A20] truncate">
                         {videoFile.name}
                       </h4>
-                      <span className="text-[11px] text-[#8E929E]">
+                      <span className="text-[11px] text-[#6B7080]">
                         {(videoFile.size / (1024 * 1024)).toFixed(2)} MB
                       </span>
                     </div>
@@ -1097,7 +1097,7 @@ export default function AIImportPage() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-[#181A20] flex items-center justify-between">
                     <span>Notes ou précisions complémentaires (optionnel)</span>
-                    <span className="text-[10px] text-[#8E929E] font-normal">ex: nom du plat, portions</span>
+                    <span className="text-[10px] text-[#6B7080] font-normal">ex: nom du plat, portions</span>
                   </label>
                   <textarea
                     rows={2}

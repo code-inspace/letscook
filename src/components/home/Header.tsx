@@ -20,7 +20,7 @@ export function Header({ user }: HeaderProps) {
             <span className="text-[#5DB534]">Let's</span>
             <span>Cook</span>
           </h1>
-          <span className="text-[10px] text-[#8E929E] font-medium">
+          <span className="text-[10px] text-[#6B7080] font-medium">
             Vos recettes & repas du quotidien
           </span>
         </div>

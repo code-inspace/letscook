@@ -85,7 +85,7 @@ export function RecipeSlider({ slides }: { slides: RecipeSlide[] }) {
                 </Link>
               </div>
 
-              <div className="flex items-center justify-between text-[11px] text-[#8E929E]">
+              <div className="flex items-center justify-between text-[11px] text-[#6B7080]">
                 <span className="flex items-center gap-1 font-semibold text-[#181A20]">
                   <Clock className="w-3.5 h-3.5 text-emerald-600" />
                   {recipe.prepTimeMinutes} min

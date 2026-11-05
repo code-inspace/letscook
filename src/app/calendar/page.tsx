@@ -31,6 +31,9 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { DEFAULT_SERVINGS } from "@/features/recipes/types";
 import { useMealPlanDrag } from "@/features/calendar/useMealPlanDrag";
 import { ServingsPicker } from "@/components/planning/ServingsPicker";
+import { FillWeekSheet } from "@/components/planning/FillWeekSheet";
+import { useReferenceServings } from "@/features/settings/referenceServings";
+import type { Recipe } from "@/features/recipes/types";
 import { toDateKey } from "@/lib/utils";
 import { categoryLabel } from "@/features/recipes/types";
 
@@ -293,10 +296,37 @@ export default function CalendarPage() {
   };
 
   const { drag, bindDraggable, consumeDragClick } = useMealPlanDrag((plan, date) => {
+    navigator.vibrate?.(15);
     updatePlan(plan.id, { date });
     setMoveToast(`« ${plan.recipeTitle} » déplacé au ${formatDayLabel(date)}`);
     setTimeout(() => setMoveToast(null), 2500);
   });
+
+  const [isFillWeekOpen, setIsFillWeekOpen] = useState(false);
+  const referenceServings = useReferenceServings(user?.id);
+
+  const handleFillWeek = async (days: Array<{ date: string; recipe: Recipe }>, servings: number) => {
+    const currentUserId = user?.id;
+    if (!currentUserId) return;
+    await Promise.all(
+      days.map(({ date, recipe }) =>
+        addOrUpdateMealPlan(
+          {
+            recipeId: recipe.id,
+            recipeTitle: recipe.title,
+            recipeImageUrl: recipe.imageUrl,
+            date,
+            mealType: "dinner",
+            servings,
+          },
+          currentUserId
+        )
+      )
+    );
+    syncAndFetchShoppingList(currentUserId, true);
+    setMoveToast(`${days.length} repas planifiés · liste de courses mise à jour`);
+    setTimeout(() => setMoveToast(null), 3000);
+  };
 
   const handleDeleteMealPlan = async (planId: string) => {
     const currentUserId = user?.id;
@@ -322,24 +352,37 @@ export default function CalendarPage() {
             <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
               Planning des repas
             </h1>
-            <span className="text-[10px] text-[#8E929E] font-medium">
+            <span className="text-[10px] text-[#6B7080] font-medium">
               {mealPlans.length} repas planifié{mealPlans.length > 1 ? "s" : ""}
             </span>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedDate(todayKey);
-            setSelectedRecipeId(recipes[0]?.id || "");
-            setIsModalOpen(true);
-          }}
-          className="w-10 h-10 rounded-full bg-[#5DB534] hover:bg-[#4FA12A] text-white flex items-center justify-center shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
-          title="Planifier un repas"
-        >
-          <Plus className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsFillWeekOpen(true)}
+            disabled={recipes.length === 0}
+            className="h-10 px-3.5 rounded-full bg-white border border-emerald-200 text-[#5DB534] text-xs font-extrabold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer disabled:opacity-40"
+            title="Proposer une recette pour chaque jour libre de la semaine"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Semaine</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedDate(todayKey);
+              setSelectedRecipeId(recipes[0]?.id || "");
+              setIsModalOpen(true);
+            }}
+            className="w-10 h-10 rounded-full bg-[#5DB534] hover:bg-[#4FA12A] text-white flex items-center justify-center shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
+            title="Planifier un repas"
+            aria-label="Planifier un repas"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        </div>
       </header>
 
       {/* VIEW 1: VUE PLANNING (AGENDA - ONLY PLANNED MEAL DAYS) */}
@@ -354,7 +397,7 @@ export default function CalendarPage() {
                 <h3 className="text-sm font-extrabold text-[#181A20]">
                   Aucun repas planifié
                 </h3>
-                <p className="text-xs text-[#8E929E] mt-1 max-w-xs mx-auto leading-relaxed">
+                <p className="text-xs text-[#6B7080] mt-1 max-w-xs mx-auto leading-relaxed">
                   Ajoutez vos recettes préférées au calendrier pour organiser votre semaine et générer vos courses automatiquement.
                 </p>
               </div>
@@ -488,7 +531,7 @@ export default function CalendarPage() {
           </div>
 
           <div ref={containerRef} className="flex-1 px-4 pt-4 space-y-8 max-w-xl w-full mx-auto">
-            <p className="text-center text-[11px] text-[#8E929E] -mb-4">
+            <p className="text-center text-[11px] text-[#6B7080] -mb-4">
               Maintenez un repas puis faites-le glisser pour changer sa date
             </p>
             {/* Load more past months */}
@@ -582,7 +625,7 @@ export default function CalendarPage() {
                                   }}
                                   className={`p-1 rounded-xl ${
                                     drag?.plan.id === plan.id ? "opacity-30" : ""
-                                  } text-[9px] font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all border bg-emerald-50/90 text-emerald-950 border-emerald-200/80 hover:bg-emerald-100`}
+                                  } text-[10px] font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all border bg-emerald-50/90 text-emerald-950 border-emerald-200/80 hover:bg-emerald-100`}
                                   title={plan.recipeTitle}
                                 >
                                   <div className="w-5 h-5 rounded-lg overflow-hidden bg-slate-200 shrink-0 border border-white/80 shadow-2xs">
@@ -682,6 +725,16 @@ export default function CalendarPage() {
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-2xl bg-[#181A20] text-white text-xs font-bold shadow-xl animate-in fade-in max-w-[90vw] text-center">
           {moveToast}
         </div>
+      )}
+
+      {isFillWeekOpen && (
+        <FillWeekSheet
+          recipes={recipes}
+          plans={mealPlans}
+          defaultServings={referenceServings}
+          onClose={() => setIsFillWeekOpen(false)}
+          onConfirm={handleFillWeek}
+        />
       )}
 
       {/* Plan a Meal Modal */}

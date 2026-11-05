@@ -60,7 +60,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, featured = true 
               {recipe.title}
             </h3>
             
-            <div className="flex items-center gap-4 mt-1.5 text-xs text-[#8E929E]">
+            <div className="flex items-center gap-4 mt-1.5 text-xs text-[#6B7080]">
               <span className="font-medium">{ingredientsCount} Ingredients</span>
               <div className="flex items-center gap-1 font-semibold text-[#181A20]">
                 <Star className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />

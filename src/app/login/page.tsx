@@ -94,7 +94,7 @@ function LoginForm() {
           className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             !isSignUp
               ? "bg-white text-[#181A20] shadow-xs"
-              : "text-[#8E929E] hover:text-[#181A20]"
+              : "text-[#6B7080] hover:text-[#181A20]"
           }`}
         >
           Se connecter
@@ -109,7 +109,7 @@ function LoginForm() {
           className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             isSignUp
               ? "bg-white text-[#181A20] shadow-xs"
-              : "text-[#8E929E] hover:text-[#181A20]"
+              : "text-[#6B7080] hover:text-[#181A20]"
           }`}
         >
           Créer un compte
@@ -135,7 +135,7 @@ function LoginForm() {
         {/* Full Name for Registration */}
         {isSignUp && (
           <div>
-            <label className="block text-[11px] font-bold text-[#8E929E] mb-1.5 uppercase tracking-wider">
+            <label className="block text-[11px] font-bold text-[#6B7080] mb-1.5 uppercase tracking-wider">
               Nom complet
             </label>
             <div className="relative">
@@ -153,7 +153,7 @@ function LoginForm() {
 
         {/* Email */}
         <div>
-          <label className="block text-[11px] font-bold text-[#8E929E] mb-1.5 uppercase tracking-wider">
+          <label className="block text-[11px] font-bold text-[#6B7080] mb-1.5 uppercase tracking-wider">
             Adresse Email
           </label>
           <div className="relative">
@@ -171,7 +171,7 @@ function LoginForm() {
 
         {/* Password */}
         <div>
-          <label className="block text-[11px] font-bold text-[#8E929E] mb-1.5 uppercase tracking-wider">
+          <label className="block text-[11px] font-bold text-[#6B7080] mb-1.5 uppercase tracking-wider">
             Mot de passe
           </label>
           <div className="relative">
@@ -219,7 +219,7 @@ export default function LoginPage() {
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#181A20] tracking-tight">
           Let's <span className="text-[#22C55E]">Cook</span>
         </h1>
-        <p className="text-xs text-[#8E929E] mt-1.5 max-w-[260px] leading-relaxed">
+        <p className="text-xs text-[#6B7080] mt-1.5 max-w-[260px] leading-relaxed">
           Votre assistant culinaire IA, synchronisé sur tous vos appareils
         </p>
       </div>
@@ -236,7 +236,7 @@ export default function LoginPage() {
 
       {/* Footer / Privacy note */}
       <div className="text-center">
-        <div className="inline-flex items-center gap-1.5 text-[11px] text-[#8E929E] bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-2xs">
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-[#6B7080] bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-2xs">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
           <span>Recettes privées, accessibles uniquement avec votre compte</span>
         </div>

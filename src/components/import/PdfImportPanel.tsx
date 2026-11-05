@@ -82,7 +82,7 @@ export function PdfImportPanel({ userId, onLog }: PdfImportPanelProps) {
         onLog?.(`Recette « ${recipe.title} » enregistrée.`);
       }
       // Single recipe: open it right away, like the other import methods
-      if (recipes.length === 1) setTimeout(() => router.push(`/recipes/${toSave[0].id}`), 600);
+      if (recipes.length === 1) setTimeout(() => router.push(`/recipes/${toSave[0].id}?imported=1`), 600);
     } catch (err: any) {
       setError(err?.message || "Erreur lors de l'enregistrement.");
     } finally {
@@ -100,7 +100,7 @@ export function PdfImportPanel({ userId, onLog }: PdfImportPanelProps) {
             <FileText className="w-4 h-4 text-[#5DB534]" />
             <span>Importez une recette depuis un PDF</span>
           </h3>
-          <p className="text-xs text-[#8E929E] mt-1 leading-relaxed">
+          <p className="text-xs text-[#6B7080] mt-1 leading-relaxed">
             Fiche recette, page de livre, PDF scanné… L&apos;IA extrait chaque recette du document, avec la
             photo du plat quand il y en a une.
           </p>

@@ -1,4 +1,4 @@
-import { fetchRecipesFromDb, pushRecipe, pushRecipeDelete } from "@/features/recipes/actions";
+import { fetchRecipesFromDb, migrateInlineImages, pushRecipe, pushRecipeDelete } from "@/features/recipes/actions";
 import { fetchMealPlansFromDb, pushMealPlan, pushMealPlanDelete } from "@/features/calendar/actions";
 import {
   pushShoppingDelete,
@@ -61,6 +61,8 @@ export function syncAllLocalDataToSupabase(userId: string, force = false): Promi
       const recipes = await fetchRecipesFromDb(userId, force);
       const plans = await fetchMealPlansFromDb(userId, force);
       const shopping = await syncAndFetchShoppingList(userId, force);
+      // Background, progressive: base64 photos → Storage
+      migrateInlineImages(userId).catch(() => {});
       window.dispatchEvent(new CustomEvent("letscook:sync-completed"));
       return {
         success: pendingCount === 0,

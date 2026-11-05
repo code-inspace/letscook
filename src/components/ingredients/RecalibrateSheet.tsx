@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Loader2, Sparkles, X, ArrowRight, RefreshCw } from "lucide-react";
+import { SHEET_GRABBER_CLASS, useSheetDrag } from "@/components/ui/useSheetDrag";
 import { Ingredient, Recipe, DEFAULT_SERVINGS } from "@/features/recipes/types";
 import {
   applySuggestions,
@@ -27,6 +28,7 @@ const formatQty = (amount: number | null | undefined, unit?: string) => {
  * proposal: edit it by hand, accept or reject it. Nothing is saved until "Appliquer".
  */
 export function RecalibrateSheet({ recipe, onClose, onApply }: RecalibrateSheetProps) {
+  const { handleProps, panelStyle } = useSheetDrag(onClose);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>("");
   // amountText keeps what the user is typing ("1," → "1,5") while amount stays numeric
@@ -101,15 +103,19 @@ export function RecalibrateSheet({ recipe, onClose, onApply }: RecalibrateSheetP
         aria-modal="true"
         aria-labelledby="recalibrate-title"
         className="w-full max-w-md bg-white rounded-t-[32px] sm:rounded-[32px] p-5 shadow-2xl flex flex-col max-h-[88vh] animate-in slide-in-from-bottom-6 text-[#181A20]"
+        style={panelStyle}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Swipe down on the handle / header to close */}
+        <div {...handleProps} className="-mt-2 pt-1 cursor-grab">
+          <div className={SHEET_GRABBER_CLASS} aria-hidden="true" />
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <h3 id="recalibrate-title" className="text-base font-extrabold flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-[#5DB534]" />
               Recalibrage des ingrédients
             </h3>
-            <p className="text-[11px] text-[#8E929E] mt-0.5">
+            <p className="text-[11px] text-[#6B7080] mt-0.5">
               Quantités de base pour {recipe.servingsBase || DEFAULT_SERVINGS} personne
               {(recipe.servingsBase || DEFAULT_SERVINGS) > 1 ? "s" : ""}
             </p>
@@ -123,13 +129,14 @@ export function RecalibrateSheet({ recipe, onClose, onApply }: RecalibrateSheetP
             <X className="w-4 h-4" />
           </button>
         </div>
+        </div>
 
         <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-2.5">
           {status === "loading" && (
             <div className="py-14 flex flex-col items-center text-center gap-2">
               <Loader2 className="w-7 h-7 animate-spin text-[#5DB534]" />
               <p className="text-xs font-bold text-slate-600">L&apos;IA vérifie les proportions…</p>
-              <p className="text-[11px] text-[#8E929E]">Unités, quantités par personne, cohérence</p>
+              <p className="text-[11px] text-[#6B7080]">Unités, quantités par personne, cohérence</p>
             </div>
           )}
 
@@ -150,7 +157,7 @@ export function RecalibrateSheet({ recipe, onClose, onApply }: RecalibrateSheetP
           {status === "ready" && items.length === 0 && (
             <div className="py-12 text-center">
               <p className="text-sm font-extrabold">Tout est cohérent 👌</p>
-              <p className="text-xs text-[#8E929E] mt-1">
+              <p className="text-xs text-[#6B7080] mt-1">
                 L&apos;IA n&apos;a trouvé aucune quantité ou unité à corriger.
               </p>
             </div>

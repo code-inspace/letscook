@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   ListPlus,
+  Store,
 } from "lucide-react";
 import { useAuth } from "@/providers/AuthProvider";
 import { ShoppingItem, RecipeContribution } from "@/features/groceries/types";
@@ -26,12 +27,15 @@ import {
   clearCompletedShoppingItems,
   formatShoppingListForExport,
   shoppingQuantityLabel,
+  restoreShoppingItems,
 } from "@/features/groceries/actions";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { useRecipes } from "@/features/recipes/actions";
 import { IngredientAutocomplete } from "@/components/ingredients/IngredientAutocomplete";
 import { formatQuantities, sumQuantities } from "@/features/ingredients/canonical";
 import { RemindersImportSheet } from "@/components/ingredients/RemindersImportSheet";
+import { SwipeableRow } from "@/components/ui/SwipeableRow";
+import { useWakeLock } from "@/lib/useWakeLock";
 import { ParsedReminder, remindersShortcutUrl } from "@/features/groceries/remindersImport";
 
 const CATEGORY_ORDER = [
@@ -155,10 +159,43 @@ export default function GroceriesPage() {
     );
   };
 
+  // Undo bar shown after a delete / clear (5 s)
+  const [undo, setUndo] = useState<{ label: string; items: ShoppingItem[] } | null>(null);
+  const undoTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offerUndo = (label: string, removed: ShoppingItem[]) => {
+    if (removed.length === 0) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndo({ label, items: removed });
+    undoTimer.current = setTimeout(() => setUndo(null), 5000);
+  };
+  const handleUndo = () => {
+    if (!undo || !user?.id) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    restoreShoppingItems(undo.items, user.id);
+    setUndo(null);
+  };
+
   const handleDelete = (item: ShoppingItem) => {
     if (!user?.id) return;
     deleteShoppingItemFromList(item, user.id);
+    offerUndo(`« ${item.name} » supprimé`, [item]);
   };
+
+  // Store mode: bigger rows, fewer controls, screen kept on while shopping
+  const [storeMode, setStoreMode] = useState(false);
+  useEffect(() => {
+    try {
+      setStoreMode(localStorage.getItem("letscook_store_mode") === "1");
+    } catch {}
+  }, []);
+  const toggleStoreMode = () =>
+    setStoreMode((on) => {
+      try {
+        localStorage.setItem("letscook_store_mode", on ? "0" : "1");
+      } catch {}
+      return !on;
+    });
+  useWakeLock(storeMode);
 
   // Import from iOS Reminders (via a Shortcut that copies the list to the clipboard)
   const [isRemindersOpen, setIsRemindersOpen] = useState(false);
@@ -190,9 +227,10 @@ export default function GroceriesPage() {
     setTimeout(() => setExportNotice(""), 3000);
   };
 
-  const handleClearCompleted = () => {
+  const handleClearCompleted = async () => {
     if (!user?.id) return;
-    clearCompletedShoppingItems(user.id);
+    const removed = await clearCompletedShoppingItems(user.id);
+    offerUndo(`${removed.length} article${removed.length > 1 ? "s" : ""} effacé${removed.length > 1 ? "s" : ""}`, removed);
   };
 
   // Filter items based on active recipe filter selection & re-calculate quantities dynamically
@@ -315,13 +353,25 @@ export default function GroceriesPage() {
             <h1 className="text-base font-extrabold text-[#181A20] leading-tight">
               Liste de courses
             </h1>
-            <span className="text-[10px] text-[#8E929E] font-medium">
+            <span className="text-[10px] text-[#6B7080] font-medium">
               Mutualisée & synchronisée
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={toggleStoreMode}
+            aria-pressed={storeMode}
+            className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm border active:scale-95 transition-all cursor-pointer ${
+              storeMode ? "bg-[#5DB534] text-white border-[#5DB534]" : "bg-white text-slate-700 border-slate-100"
+            }`}
+            title="Mode magasin : gros caractères, écran toujours allumé"
+            aria-label={storeMode ? "Quitter le mode magasin" : "Mode magasin"}
+          >
+            <Store className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -361,7 +411,7 @@ export default function GroceriesPage() {
         )}
 
         {/* Recipe Filter Carousel (Interactive Miniature Recipe Chips) */}
-        {contributingRecipes.length > 0 && (
+        {!storeMode && contributingRecipes.length > 0 && (
           <div className="bg-white p-3.5 rounded-3xl border border-slate-100 shadow-2xs space-y-2">
             <div className="flex items-center justify-between px-1">
               <span className="text-[11px] font-bold text-slate-500">
@@ -416,6 +466,7 @@ export default function GroceriesPage() {
         )}
 
         {/* Quick Add Form */}
+        {!storeMode && (
         <form
           onSubmit={handleAddItem}
           className="bg-white p-3 rounded-2xl border border-slate-100 shadow-xs flex items-center gap-2"
@@ -444,9 +495,17 @@ export default function GroceriesPage() {
             <Plus className="w-5 h-5" />
           </button>
         </form>
+        )}
+
+        {storeMode && (
+          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200/70 text-[12px] text-emerald-900 font-semibold flex items-center gap-2">
+            <Store className="w-4 h-4 text-[#5DB534] shrink-0" />
+            <span>Mode magasin : écran toujours allumé. Glissez → pour cocher, ← pour supprimer.</span>
+          </div>
+        )}
 
         {/* Status Bar */}
-        <div className="flex items-center justify-between text-xs px-1 text-[#8E929E]">
+        <div className="flex items-center justify-between text-xs px-1 text-[#6B7080]">
           <span className="font-semibold text-[#181A20]">
             {uncheckedItems.length} article(s) à acheter
           </span>
@@ -466,7 +525,7 @@ export default function GroceriesPage() {
         {isLoading ? (
           <div className="py-16 text-center">
             <div className="w-8 h-8 border-3 border-[#5DB534] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-xs text-[#8E929E]">Chargement de votre liste...</p>
+            <p className="text-xs text-[#6B7080]">Chargement de votre liste...</p>
           </div>
         ) : displayItems.length === 0 ? (
           /* Empty State */
@@ -477,7 +536,7 @@ export default function GroceriesPage() {
             <h3 className="text-sm font-extrabold text-[#181A20]">
               Aucun ingrédient à acheter
             </h3>
-            <p className="text-xs text-[#8E929E] mt-1 max-w-xs leading-relaxed">
+            <p className="text-xs text-[#6B7080] mt-1 max-w-xs leading-relaxed">
               {contributingRecipes.length > 0 && deselectedRecipeIds.size === contributingRecipes.length
                 ? "Toutes les recettes sont actuellement désélectionnées. Cliquez sur les miniatures en haut pour les réafficher !"
                 : "Planifiez des recettes dans votre Calendrier pour y ajouter automatiquement les ingrédients mutualisés !"}
@@ -560,19 +619,31 @@ export default function GroceriesPage() {
                             : [];
 
                         return (
-                          <div
+                          <SwipeableRow
                             key={item.id}
-                            className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all"
+                            onSwipeRight={() => handleToggle(item)}
+                            onSwipeLeft={() => handleDelete(item)}
+                          >
+                          <div
+                            className={`bg-white rounded-2xl border border-slate-100 shadow-2xs flex items-center justify-between gap-3 group hover:border-slate-200 transition-all ${
+                              storeMode ? "p-4" : "p-3.5"
+                            }`}
                           >
                             <div
                               onClick={() => handleToggle(item)}
                               className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
                             >
                               {/* Checkbox */}
-                              <div className="w-5 h-5 rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0" />
+                              <div
+                                className={`rounded-lg border-2 border-slate-300 flex items-center justify-center group-hover:border-[#5DB534] transition-colors shrink-0 ${
+                                  storeMode ? "w-7 h-7" : "w-5 h-5"
+                                }`}
+                              />
 
                               <div className="flex flex-col min-w-0 flex-1">
-                                <span className="text-xs font-bold text-[#181A20] truncate">
+                                <span
+                                  className={`font-bold text-[#181A20] truncate ${storeMode ? "text-base" : "text-xs"}`}
+                                >
                                   {item.name}
                                 </span>
 
@@ -605,7 +676,7 @@ export default function GroceriesPage() {
                                           className="w-full h-full object-cover"
                                         />
                                       ) : (
-                                        <div className="w-full h-full bg-emerald-100 flex items-center justify-center text-[9px]">
+                                        <div className="w-full h-full bg-emerald-100 flex items-center justify-center text-[10px]">
                                           🍽️
                                         </div>
                                       )}
@@ -631,6 +702,7 @@ export default function GroceriesPage() {
                               </button>
                             </div>
                           </div>
+                          </SwipeableRow>
                         );
                       })}
                     </div>
@@ -690,9 +762,15 @@ export default function GroceriesPage() {
                           : [];
 
                       return (
-                        <div
+                        <SwipeableRow
                           key={item.id}
-                          className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex items-center justify-between gap-3 opacity-75 hover:opacity-100 transition-all"
+                          onSwipeRight={() => handleToggle(item)}
+                          onSwipeLeft={() => handleDelete(item)}
+                          rightLabel="Remettre"
+                          rightIsUndo
+                        >
+                        <div
+                          className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center justify-between gap-3 opacity-75 hover:opacity-100 transition-all"
                         >
                           <div
                             onClick={() => handleToggle(item)}
@@ -760,6 +838,7 @@ export default function GroceriesPage() {
                             </button>
                           </div>
                         </div>
+                        </SwipeableRow>
                       );
                     })}
                   </div>
@@ -769,6 +848,22 @@ export default function GroceriesPage() {
           </div>
         )}
       </div>
+
+      {undo && (
+        <div
+          role="status"
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-md bg-zinc-900 text-white pl-4 pr-2 py-2 rounded-2xl shadow-xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-4"
+        >
+          <span className="text-xs font-bold truncate">{undo.label}</span>
+          <button
+            type="button"
+            onClick={handleUndo}
+            className="px-3 py-1.5 rounded-xl bg-white/15 text-xs font-extrabold text-emerald-300 cursor-pointer active:scale-95"
+          >
+            Annuler
+          </button>
+        </div>
+      )}
 
       {isRemindersOpen && (
         <RemindersImportSheet

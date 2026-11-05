@@ -11,11 +11,17 @@ import {
   Sparkles,
   Timer,
   Film,
+  Play,
+  X,
+  BellRing,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { useAuth } from "@/providers/AuthProvider";
 import { RecipeStep } from "@/features/recipes/types";
 import { useRecipes } from "@/features/recipes/actions";
+import { useWakeLock } from "@/lib/useWakeLock";
+import { goBack } from "@/lib/utils";
+import { extractDurations, formatRemaining, useStepTimers } from "@/features/cooking/timers";
 
 export default function CookingStepPage() {
   const params = useParams();
@@ -31,6 +37,10 @@ export default function CookingStepPage() {
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
+
+  // Hands are busy while cooking: keep the screen on
+  useWakeLock(true);
+  const { timers, now, start: startTimer, remove: removeTimer } = useStepTimers(recipeId);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const frenchVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
@@ -203,6 +213,12 @@ export default function CookingStepPage() {
   }
 
   const stepImage = currentStep.imageUrl || recipe.imageUrl;
+  const stepDurations = Array.from(
+    new Set([
+      ...(currentStep.durationMinutes ? [currentStep.durationMinutes] : []),
+      ...extractDurations(currentStep.description),
+    ])
+  ).slice(0, 3);
 
   return (
     <div className="fixed inset-0 z-50 w-full h-[100dvh] max-h-[100dvh] bg-black overflow-hidden flex flex-col justify-between select-none touch-none overscroll-none text-white">
@@ -230,7 +246,7 @@ export default function CookingStepPage() {
           type="button"
           onClick={() => {
             stopSpeech();
-            router.back();
+            goBack(router, `/recipes/${recipe.id}`);
           }}
           className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-xl border border-white/20 flex items-center justify-center text-white active:scale-95 transition-all shadow-lg cursor-pointer"
           title="Retour"
@@ -268,6 +284,45 @@ export default function CookingStepPage() {
           <Menu className="w-4 h-4" />
         </button>
       </header>
+
+      {/* Running timers (kept across steps) */}
+      {timers.length > 0 && (
+        <div className="relative z-20 px-5 flex flex-wrap justify-center gap-2" aria-live="polite">
+          {timers.map((t) => {
+            const remaining = t.endsAt - now;
+            const done = t.done || remaining <= 0;
+            return (
+              <div
+                key={t.id}
+                className={`flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full border backdrop-blur-xl shadow-lg ${
+                  done ? "bg-amber-500 border-amber-300 animate-pulse" : "bg-black/60 border-white/25"
+                }`}
+              >
+                {done ? <BellRing className="w-4 h-4" /> : <Timer className="w-4 h-4 text-[#5DB534]" />}
+                <button
+                  type="button"
+                  onClick={() => setCurrentStepIndex(t.stepIndex)}
+                  className="text-left cursor-pointer"
+                  title="Aller à l'étape du minuteur"
+                >
+                  <span className="block text-[15px] font-extrabold tabular-nums leading-none">
+                    {done ? "Terminé !" : formatRemaining(remaining)}
+                  </span>
+                  <span className="block text-[10px] text-white/80 leading-tight">Étape {t.stepIndex + 1}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeTimer(t.id)}
+                  aria-label={done ? "Arrêter l'alarme" : "Annuler le minuteur"}
+                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Middle Section: Step Title & Audio Voice Assistant */}
       <div className="relative z-10 px-6 flex flex-col items-center text-center my-auto">
@@ -335,10 +390,22 @@ export default function CookingStepPage() {
             </div>
           )}
 
-          {currentStep.durationMinutes && (
-            <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 bg-white/15 rounded-full text-[10px] font-semibold text-white/90">
-              <Timer className="w-3 h-3 text-[#5DB534]" />
-              <span>Durée estimée : {currentStep.durationMinutes} min</span>
+          {/* One-tap timers for every duration of the step ("cuire 12-15 min") */}
+          {stepDurations.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
+              {stepDurations.map((minutes) => (
+                <button
+                  key={minutes}
+                  type="button"
+                  onClick={() =>
+                    startTimer(currentStepIndex, minutes, `Étape ${currentStepIndex + 1} · ${currentStep.title || recipe.title}`)
+                  }
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#5DB534] hover:bg-[#4FA12A] rounded-full text-xs font-extrabold text-white shadow-lg active:scale-95 transition-all cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  <span>Minuteur {minutes} min</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -405,7 +472,7 @@ export default function CookingStepPage() {
             <h3 className="text-xl font-extrabold text-[#181A20]">
               Bon appétit ! 🍽️
             </h3>
-            <p className="text-xs text-[#8E929E] mt-2 leading-relaxed">
+            <p className="text-xs text-[#6B7080] mt-2 leading-relaxed">
               Vous avez complété la recette <strong>{recipe.title}</strong> avec succès.
             </p>
 
