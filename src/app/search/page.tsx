@@ -30,7 +30,8 @@ function SearchContent() {
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [category, setCategory] = useState("");
   const [have, setHave] = useState("");
-  const [showHave, setShowHave] = useState(false);
+  // /search?have=1 (home shortcut "Avec ce que j'ai") opens the ingredient field
+  const [showHave, setShowHave] = useState(() => searchParams.get("have") === "1");
 
   const results = useMemo(
     () => searchRecipes(recipes, { query, maxMinutes, onlyFavorites, category, have }),

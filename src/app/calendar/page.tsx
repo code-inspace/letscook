@@ -303,6 +303,20 @@ export default function CalendarPage() {
   });
 
   const [isFillWeekOpen, setIsFillWeekOpen] = useState(false);
+  // /calendar?fill=1 (home shortcut "Ma semaine") opens the week filler once recipes are loaded
+  const [fillRequested, setFillRequested] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("fill") === "1") {
+      setFillRequested(true);
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+    }
+  }, []);
+  useEffect(() => {
+    if (fillRequested && storedRecipes && storedPlans) {
+      setFillRequested(false);
+      if (storedRecipes.length > 0) setIsFillWeekOpen(true);
+    }
+  }, [fillRequested, storedRecipes, storedPlans]);
   const referenceServings = useReferenceServings(user?.id);
 
   const handleFillWeek = async (days: Array<{ date: string; recipe: Recipe }>, servings: number) => {
